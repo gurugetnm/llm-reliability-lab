@@ -1,0 +1,9 @@
+# Shared Ruff defaults for packages/* (each of which has its own minimal
+# pyproject.toml with no [tool.ruff] section). apps/api defines its own
+# full configuration in apps/api/pyproject.toml, which Ruff prefers over
+# this file for anything under apps/api/.
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
