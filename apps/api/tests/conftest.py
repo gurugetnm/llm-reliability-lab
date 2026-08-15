@@ -15,14 +15,13 @@ import os
 from collections.abc import AsyncGenerator
 
 import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-
 from app.config import get_settings
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 
 def _test_database_url() -> str:
