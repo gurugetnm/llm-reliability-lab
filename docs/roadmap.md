@@ -12,13 +12,18 @@ environment, the `LLMProvider` abstraction (implemented against
 Ollama), basic project management (create/list), health/observability
 basics, and the tooling (tests, linting, CI) to build on safely.
 
-## Phase 2 — LLM execution
+## Phase 2 — LLM execution ✅
 
 Actually running a prompt against a model and getting a result back
-through the UI: a prompt editor, model selection (populated from
-Ollama's `/api/tags`), a single "run" flow using
-`LLMProvider.generate()`/`.stream()`, and a place to see the raw
-output. No comparison across runs yet — that's Phase 3.
+through the UI: model discovery (`GET /api/v1/models`, populated from
+Ollama's `/api/tags`, never hardcoded), a Playground page with a
+prompt editor and streamed output (`POST /api/v1/generate/stream`,
+Server-Sent Events), non-streaming structured output validated against
+a runtime JSON Schema, and execution metadata (latency, token usage).
+No persistence and no cross-run comparison yet — a Playground run only
+lives in the browser (localStorage); the permanent run/trace schema
+and comparison UI are Phase 3. See
+[`docs/llm-execution.md`](./llm-execution.md).
 
 ## Phase 3 — Experiment engine
 

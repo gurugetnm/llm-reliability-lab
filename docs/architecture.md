@@ -42,9 +42,13 @@ testable and importable from a script or notebook without booting FastAPI.
   Sections without real functionality yet render `<EmptyState>` with
   copy that says what's coming and when, rather than a bare "TODO".
 - **Data:** a small typed client (`src/lib/api.ts`) wraps `fetch` against
-  `NEXT_PUBLIC_API_URL`. No React Query / SWR yet — there's exactly one
-  resource (projects) and two call sites; that will change once
-  experiments and evaluations exist, at which point revisit this.
+  `NEXT_PUBLIC_API_URL`; `src/lib/llm/` holds the LLM-execution-specific
+  client, including a hand-rolled SSE reader (`stream.ts`, over `fetch`
+  rather than `EventSource` since streaming requires a POST body) and
+  the `useGeneration()` hook that drives the Playground's state machine.
+  No React Query / SWR yet — the data-fetching surface is still small
+  enough that plain `useEffect`/`useState` stays readable; revisit once
+  experiments and evaluations add more of it.
 - **Theming:** `next-themes` drives a `class`-based dark mode; every
   color is a CSS variable in `globals.css`, themed per-mode. Components
   reference tokens (`bg-card`, `text-muted-foreground`, ...), never raw
@@ -64,7 +68,7 @@ apps/api/app/
   config.py        Settings (pydantic-settings, env-var driven)
   core/            Cross-cutting: structured logging, exception types/handlers
   api/
-    routes/        One module per resource (health.py, projects.py)
+    routes/        One module per resource (health.py, projects.py, models.py, generate.py)
     router.py       Aggregates routes under /api/v1
     deps.py         Shared FastAPI dependencies (DbSession, ...)
   db/               Engine/session setup, declarative Base + mixins
@@ -129,10 +133,10 @@ Ollama exists.**
 
 ```
 packages/llm/src/reliability_lab_llm/
-  base.py          LLMProvider (ABC): generate, generate_structured, stream, get_model_info
-  types.py         Provider-agnostic types: Message, GenerationOptions, GenerationResult, ...
+  base.py          LLMProvider (ABC): generate, generate_structured, stream, get_model_info, get_models
+  types.py         Provider-agnostic types: Message, GenerationOptions, GenerationResult, ModelSummary, ...
   ollama.py         OllamaProvider(LLMProvider) — the only Ollama-aware code
-  exceptions.py     ProviderError, ProviderConnectionError, ModelNotFoundError
+  exceptions.py     ProviderError, ProviderConnectionError, ModelNotFoundError, StructuredOutputError
 ```
 
 `apps/api/app/llm/dependencies.py` is the only place that constructs a
@@ -143,11 +147,15 @@ with `functools.lru_cache`. Adding `OpenAIProvider` or
 service, or future evaluation/RAG code should ever import
 `OllamaProvider` directly.
 
-`generate_structured()` takes a Pydantic model as its schema and returns
-a validated instance of it, using Ollama's structured-output support
-(`format: <json schema>`) — this is what the future evaluation and
+`generate_structured()` accepts either a Pydantic model type (typed
+callers get a validated instance back) or a raw JSON Schema `dict`
+(callers building a schema at runtime — the Playground — get a
+validated plain `dict` back), using Ollama's structured-output support
+(`format: <json schema>`). This is what the future evaluation and
 experiment engines will use to get typed judgments and structured tool
-calls out of a model, rather than parsing free text.
+calls out of a model, rather than parsing free text. See
+[`docs/llm-execution.md`](./llm-execution.md) for the full request flow,
+including streaming.
 
 ## Future: evaluation architecture (Phase 4)
 
@@ -170,7 +178,10 @@ independently of end-to-end generation quality.
 
 Not implemented yet. Expected shape: every step of a run (retrieval
 calls, LLM calls, tool calls) recorded as a span with timing, inputs,
-and outputs, linked to the experiment/evaluation that produced it —
-`GenerationResult.raw` and `latency_ms` already exist on the LLM
-provider's return type specifically so this has something to record
-once tracing lands, without changing the provider interface.
+and outputs, linked to the experiment/evaluation that produced it.
+`ExecutionResult` (`apps/api/app/schemas/generation.py`) — the record a
+Playground generation returns today — already carries an id, model,
+timing, usage, and parameters for exactly this reason; it's not
+persisted yet (Phase 2 deliberately doesn't touch the database), but
+its shape is meant to survive into the eventual trace/run record
+largely unchanged.

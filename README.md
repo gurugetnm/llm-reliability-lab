@@ -13,10 +13,11 @@ single LLM API. It's meant to feel like a developer tool — Linear,
 Vercel, and modern observability platforms are the reference points, not
 "AI startup" gradients and glow.
 
-> **Status:** Phase 1 (Foundation) is complete. Project structure,
-> both apps, the database, and the LLM provider abstraction are in
-> place; the experiment/evaluation/RAG engines described below are not
-> built yet. See [`docs/roadmap.md`](docs/roadmap.md).
+> **Status:** Phase 1 (Foundation) and Phase 2 (LLM Execution) are
+> complete — you can run a prompt against a local Ollama model through
+> the Playground UI, streamed, with structured output and execution
+> metadata. The experiment/evaluation/RAG engines described below are
+> not built yet. See [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Why
 
@@ -32,12 +33,15 @@ local, reproducible workflow instead.
 Dataset → Experiment → Prompt → Model → RAG / Tools → LLM → Trace → Evaluation → Metrics → Comparison
 ```
 
-That's the pipeline the whole system is building toward. Only the
-foundation it stands on — the project structure, the LLM abstraction,
-and basic project management — is implemented so far. See
+That's the pipeline the whole system is building toward. So far:
+the project foundation, the LLM abstraction, basic project management,
+and single-prompt LLM execution (Playground) are implemented — there's
+no persisted `Experiment`/`Trace`/`Evaluation` yet. See
 [`docs/architecture.md`](docs/architecture.md) for the full breakdown of
 how the frontend, backend, database, and LLM abstraction are put
-together, and [`docs/roadmap.md`](docs/roadmap.md) for what's next.
+together, [`docs/llm-execution.md`](docs/llm-execution.md) for how a
+Playground run actually flows end to end, and
+[`docs/roadmap.md`](docs/roadmap.md) for what's next.
 
 ```
 apps/
@@ -66,10 +70,11 @@ scripts/           Developer tooling
 
 Application code never talks to Ollama directly — it depends on
 `LLMProvider` (`generate`, `generate_structured`, `stream`,
-`get_model_info`), implemented today by `OllamaProvider`
+`get_model_info`, `get_models`), implemented today by `OllamaProvider`
 (`packages/llm`). Adding OpenAI, Anthropic, or HuggingFace later means
 implementing that interface, not rewriting the app. Details in
-[`docs/architecture.md`](docs/architecture.md#llm-provider-abstraction).
+[`docs/architecture.md`](docs/architecture.md#llm-provider-abstraction)
+and [`docs/llm-execution.md`](docs/llm-execution.md).
 
 ## Local setup
 
@@ -90,11 +95,14 @@ directories, so edits on the host hot-reload inside the containers.
 
 **Using a local Ollama instance:** install
 [Ollama](https://ollama.com), run `ollama pull llama3.1` (or your model
-of choice), and start it normally on the host —
-`docker-compose.yml` already points the API at
-`http://host.docker.internal:11434`. Nothing currently calls Ollama by
-default (Phase 2), but `GET /api/v1/health` reports the configured
-provider/model so you can confirm the connection settings are correct.
+of choice), and start it normally on the host — `docker-compose.yml`
+already points the containerized API at
+`http://host.docker.internal:11434` (via `OLLAMA_BASE_URL_DOCKER`; see
+[`docs/llm-execution.md`](docs/llm-execution.md) for why that's a
+separate variable from `OLLAMA_BASE_URL`). Open
+[`http://localhost:3000/playground`](http://localhost:3000/playground)
+to run a prompt against it, or check `GET /api/v1/models/health` to
+confirm connectivity without the UI.
 
 ### Option B — run natively
 
@@ -123,24 +131,33 @@ alembic -c apps/api/alembic.ini upgrade head
 ## Current capabilities
 
 - Application shell: sidebar navigation, dark/light mode, responsive
-  layout, keyboard-friendly, across all eight planned sections
-- **Projects**: create and list — the one resource implemented end to
-  end (UI → API → Postgres)
-- Every other section (Experiments, Datasets, Models, Evaluations,
-  Traces, Settings) renders a real empty state explaining what's coming
-  and when, rather than a stub
-- `GET /api/v1/health` — service, database, and configured-LLM-provider
-  status
+  layout, keyboard-friendly, across all nine planned sections
+- **Projects**: create and list — a full resource end to end (UI → API
+  → Postgres)
+- **Models**: real Ollama model discovery (`GET /api/v1/models`), with
+  distinct loading / no-models-installed / Ollama-unreachable states
+  and a refresh action — never hardcoded
+- **Playground**: run a prompt against an installed model — system +
+  user prompt, temperature/max tokens, streamed text output (SSE) or
+  non-streaming structured JSON output validated against a schema you
+  define, execution metadata (latency, token usage, finish reason),
+  and a lightweight localStorage run history
+- Every other section (Experiments, Datasets, Evaluations, Traces,
+  Settings) renders a real empty state explaining what's coming and
+  when, rather than a stub
+- `GET /api/v1/health` and `GET /api/v1/models/health` — service,
+  database, and Ollama connectivity status
 - `LLMProvider` interface + a fully implemented, tested `OllamaProvider`
   (chat and completion prompts, structured output, streaming, model
-  info) — not yet wired into any UI flow
+  discovery) — now wired into the Playground and Models pages
 
 ## Roadmap
 
-Phase 1 (this repo) → LLM execution → experiment engine → evaluation
-engine → RAG evaluation → tracing/observability → model routing → agent
-evaluation → MCP/tool evaluation → automated optimization. Full detail
-in [`docs/roadmap.md`](docs/roadmap.md).
+Phase 1 (Foundation) → **Phase 2 (LLM Execution, this repo)** → Phase 3
+(Experiment Engine) → Phase 4 (Evaluation) → Phase 5 (RAG) → Phase 6
+(Observability) → Phase 7 (Model Routing) → Phase 8 (Agent Evaluation)
+→ Phase 9 (MCP) → Phase 10 (Automated Optimization). Full detail in
+[`docs/roadmap.md`](docs/roadmap.md).
 
 ## Contributing
 
