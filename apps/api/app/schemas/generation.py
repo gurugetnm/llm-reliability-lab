@@ -6,7 +6,6 @@ and the provider-agnostic `reliability_lab_llm` types, so a future
 provider (or a change to Ollama's API) never has to change this schema.
 """
 
-import re
 import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -14,9 +13,7 @@ from typing import Any, Literal
 import jsonschema
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-# Conservative but permissive: covers Ollama tags like "llama3.1:8b-instruct-q4_0"
-# and future providers' "gpt-4o-mini"/"claude-opus-5" style names.
-_MODEL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._:/-]{0,199})$")
+from app.schemas.validators import validate_model_name
 
 
 class GenerateMessage(BaseModel):
@@ -43,9 +40,7 @@ class GenerateRequest(BaseModel):
     @field_validator("model")
     @classmethod
     def _validate_model_name(cls, value: str) -> str:
-        if not _MODEL_NAME_PATTERN.match(value):
-            raise ValueError("Model name may only contain letters, numbers, and . _ : / -")
-        return value
+        return validate_model_name(value)
 
     @field_validator("response_schema")
     @classmethod
