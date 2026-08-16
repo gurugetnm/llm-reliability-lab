@@ -7,15 +7,29 @@ thin, rule-free data-access layer) or in the routes. Bulk-import parsing
 lives here too — see the `# --- bulk import` section below.
 """
 
+import json
 import uuid
+from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError, ValidationError
 from app.models.dataset import Dataset, DatasetItem
 from app.repositories import dataset_repository as repo
-from app.schemas.dataset import DatasetCreate, DatasetItemCreate, DatasetItemUpdate, DatasetUpdate
+from app.schemas.dataset import (
+    DatasetCreate,
+    DatasetImportRowError,
+    DatasetItemCreate,
+    DatasetItemUpdate,
+    DatasetUpdate,
+)
 from app.services import project_service
+
+#: A single import request can't be unbounded — this is generous enough
+#: for any realistic evaluation/eval-golden-set dataset while keeping one
+#: request from parsing gigabytes of text.
+MAX_IMPORT_ROWS = 50_000
 
 
 async def get_dataset_or_404(db: AsyncSession, dataset_id: uuid.UUID) -> Dataset:
@@ -128,3 +142,93 @@ async def update_dataset_item(
 async def delete_dataset_item(db: AsyncSession, dataset_id: uuid.UUID, item_id: uuid.UUID) -> None:
     item = await get_dataset_item_or_404(db, dataset_id, item_id)
     await repo.delete_dataset_item(db, item)
+
+
+# --- bulk import ---------------------------------------------------------
+
+
+@dataclass
+class ParsedImport:
+    rows: list[dict[str, Any]]
+    errors: list[DatasetImportRowError]
+
+
+def _validate_row(raw: Any, line: int) -> DatasetImportRowError | dict[str, Any]:
+    if not isinstance(raw, dict):
+        return DatasetImportRowError(line=line, message="Record must be a JSON object")
+    if "input" not in raw or raw["input"] is None:
+        return DatasetImportRowError(line=line, message="missing required field: input")
+    extra_keys = set(raw) - {"input", "expected_output", "metadata"}
+    if extra_keys:
+        return DatasetImportRowError(
+            line=line, message=f"unknown field(s): {', '.join(sorted(extra_keys))}"
+        )
+    if "metadata" in raw and raw["metadata"] is not None and not isinstance(raw["metadata"], dict):
+        return DatasetImportRowError(line=line, message="metadata must be a JSON object")
+    return raw
+
+
+def parse_import_content(content: str, fmt: str) -> ParsedImport:
+    """Parses+validates every record before anything is imported — an
+    import either succeeds in full or reports every invalid record
+    without touching the database (see `bulk_import_dataset_items`)."""
+    rows: list[dict[str, Any]] = []
+    errors: list[DatasetImportRowError] = []
+
+    if fmt == "json":
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise ValidationError(f"Invalid JSON: {exc.msg} (line {exc.lineno})") from exc
+        if not isinstance(parsed, list):
+            raise ValidationError("JSON import must be a top-level array of records")
+        if len(parsed) > MAX_IMPORT_ROWS:
+            raise ValidationError(f"Import exceeds the maximum of {MAX_IMPORT_ROWS} records")
+        for index, raw in enumerate(parsed, start=1):
+            outcome = _validate_row(raw, index)
+            if isinstance(outcome, DatasetImportRowError):
+                errors.append(outcome)
+            else:
+                rows.append(outcome)
+        return ParsedImport(rows=rows, errors=errors)
+
+    if fmt == "jsonl":
+        lines = content.splitlines()
+        if len(lines) > MAX_IMPORT_ROWS:
+            raise ValidationError(f"Import exceeds the maximum of {MAX_IMPORT_ROWS} records")
+        for index, line in enumerate(lines, start=1):
+            if not line.strip():
+                continue
+            try:
+                raw = json.loads(line)
+            except json.JSONDecodeError as exc:
+                errors.append(DatasetImportRowError(line=index, message=f"invalid JSON: {exc.msg}"))
+                continue
+            outcome = _validate_row(raw, index)
+            if isinstance(outcome, DatasetImportRowError):
+                errors.append(outcome)
+            else:
+                rows.append(outcome)
+        return ParsedImport(rows=rows, errors=errors)
+
+    raise ValidationError(f"Unsupported import format: {fmt!r}")
+
+
+async def bulk_import_dataset_items(
+    db: AsyncSession, dataset_id: uuid.UUID, *, content: str, fmt: str
+) -> tuple[Dataset, int]:
+    dataset = await get_dataset_or_404(db, dataset_id)
+    parsed = parse_import_content(content, fmt)
+    if parsed.errors:
+        raise ValidationError(
+            "Dataset import failed validation",
+            errors=[error.model_dump() for error in parsed.errors],
+        )
+    if not parsed.rows:
+        raise ValidationError("Import contained no records")
+
+    await repo.bulk_create_dataset_items(db, dataset_id=dataset_id, rows=parsed.rows)
+    dataset.version += 1
+    await db.flush()
+    await db.refresh(dataset)
+    return dataset, len(parsed.rows)

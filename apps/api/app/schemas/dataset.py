@@ -4,7 +4,7 @@ SQLAlchemy models directly through the API (see `app/models/dataset.py`).
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -66,3 +66,21 @@ class DatasetItemRead(BaseModel):
     position: int
     created_at: datetime
     updated_at: datetime
+
+
+# --- bulk import ---------------------------------------------------------
+
+
+class DatasetImportRequest(BaseModel):
+    format: Literal["json", "jsonl"]
+    content: str = Field(min_length=1, max_length=10_000_000)
+
+
+class DatasetImportRowError(BaseModel):
+    line: int
+    message: str
+
+
+class DatasetImportResponse(BaseModel):
+    dataset: DatasetRead
+    imported_count: int

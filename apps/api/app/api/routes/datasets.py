@@ -12,6 +12,8 @@ from app.api.deps import DbSession
 from app.models.dataset import Dataset
 from app.schemas.dataset import (
     DatasetCreate,
+    DatasetImportRequest,
+    DatasetImportResponse,
     DatasetItemCreate,
     DatasetItemRead,
     DatasetItemUpdate,
@@ -111,3 +113,19 @@ async def update_dataset_item(
 @router.delete("/{dataset_id}/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_dataset_item(dataset_id: uuid.UUID, item_id: uuid.UUID, db: DbSession) -> None:
     await dataset_service.delete_dataset_item(db, dataset_id, item_id)
+
+
+# --- bulk import ---------------------------------------------------------
+
+
+@router.post("/{dataset_id}/import", response_model=DatasetImportResponse)
+async def import_dataset_items(
+    dataset_id: uuid.UUID, data: DatasetImportRequest, db: DbSession
+) -> DatasetImportResponse:
+    dataset, imported_count = await dataset_service.bulk_import_dataset_items(
+        db, dataset_id, content=data.content, fmt=data.format
+    )
+    _, count = await dataset_service.get_dataset_with_item_count(db, dataset_id)
+    return DatasetImportResponse(
+        dataset=_dataset_read(dataset, count), imported_count=imported_count
+    )
