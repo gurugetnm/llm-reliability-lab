@@ -116,7 +116,7 @@ export default function ExperimentRunsPage() {
           title="No runs yet"
           description="Run this experiment to see its history here."
           action={
-            <Button size="sm" render={<Link href={`/experiments/${id}`} />}>
+            <Button size="sm" nativeButton={false} render={<Link href={`/experiments/${id}`} />}>
               Go to experiment
             </Button>
           }
@@ -171,6 +171,7 @@ export default function ExperimentRunsPage() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        nativeButton={false}
                         render={<Link href={`/experiments/${id}/runs/${run.id}`} />}
                       >
                         View Run

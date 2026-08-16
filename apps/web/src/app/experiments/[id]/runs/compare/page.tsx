@@ -13,7 +13,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { api, ApiError, type ExperimentRun, type RunItem } from "@/lib/api";
 import { diffWords } from "@/lib/text-diff";
 
-const MAX_ITEMS = 200;
+// Matches the backend's MAX_PAGE_SIZE (app/schemas/pagination.py) — the
+// largest page_size the API will accept without a 422.
+const MAX_ITEMS = 100;
 
 interface PairedItem {
   key: string;

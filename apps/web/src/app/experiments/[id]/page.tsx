@@ -97,6 +97,7 @@ export default function ExperimentDetailPage() {
             <Button
               variant="outline"
               size="sm"
+              nativeButton={false}
               render={<Link href={`/experiments/${experiment.id}/runs`} />}
             >
               <History className="size-3.5" />
@@ -199,6 +200,7 @@ export default function ExperimentDetailPage() {
                   variant="outline"
                   size="sm"
                   className="w-full"
+                  nativeButton={false}
                   render={
                     <Link
                       href={`/experiments/${experiment.id}/runs/${experiment.latest_run.id}`}

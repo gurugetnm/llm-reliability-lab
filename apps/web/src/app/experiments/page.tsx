@@ -57,7 +57,7 @@ export default function ExperimentsPage() {
         title="Experiments"
         description="Run and compare prompt, model, and generation configurations against a dataset."
         actions={
-          <Button size="sm" render={<Link href="/experiments/new" />}>
+          <Button size="sm" nativeButton={false} render={<Link href="/experiments/new" />}>
             Create Experiment
           </Button>
         }
@@ -87,7 +87,7 @@ export default function ExperimentsPage() {
           title="No experiments yet"
           description="Create an experiment to run a prompt and model configuration across a whole dataset."
           action={
-            <Button size="sm" render={<Link href="/experiments/new" />}>
+            <Button size="sm" nativeButton={false} render={<Link href="/experiments/new" />}>
               Create Experiment
             </Button>
           }
@@ -139,6 +139,7 @@ export default function ExperimentsPage() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          nativeButton={false}
                           render={<Link href={`/experiments/${experiment.id}/runs`} />}
                         >
                           <History className="size-3.5" />

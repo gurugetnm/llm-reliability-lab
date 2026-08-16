@@ -240,8 +240,15 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const body = await response.json().catch(() => null);
+    // `detail` is usually our own AppError's message (a string), but
+    // FastAPI's own request-validation errors (a malformed query param,
+    // an out-of-range value the route caught before our code ever ran)
+    // return `detail` as a *list* of error objects instead — coercing
+    // that into an Error's `message` would silently stringify to
+    // "[object Object]" rather than showing anything useful.
+    const detail = typeof body?.detail === "string" ? body.detail : null;
     throw new ApiError(
-      body?.detail ?? `Request failed with status ${response.status}`,
+      detail ?? `Request failed with status ${response.status}`,
       response.status,
       body,
     );
