@@ -20,3 +20,16 @@ class ModelNotFoundError(ProviderError):
         self.model = model
         self.provider = provider
         super().__init__(f"Model '{model}' was not found on provider '{provider}'")
+
+
+class StructuredOutputError(ProviderError):
+    """A structured generation's output didn't parse as JSON, or didn't
+    match the requested schema.
+
+    Carries the raw model output so callers can show it for debugging
+    instead of silently discarding a failed generation.
+    """
+
+    def __init__(self, message: str, *, raw_text: str) -> None:
+        self.raw_text = raw_text
+        super().__init__(message)

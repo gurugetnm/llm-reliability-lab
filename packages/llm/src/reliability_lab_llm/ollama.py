@@ -14,19 +14,22 @@ from collections.abc import AsyncIterator
 from typing import Any, TypeVar
 
 import httpx
-from pydantic import BaseModel
+import jsonschema
+from pydantic import BaseModel, ValidationError
 
 from reliability_lab_llm.base import LLMProvider
 from reliability_lab_llm.exceptions import (
     ModelNotFoundError,
     ProviderConnectionError,
     ProviderError,
+    StructuredOutputError,
 )
 from reliability_lab_llm.types import (
     GenerationOptions,
     GenerationResult,
     Message,
     ModelInfo,
+    ModelSummary,
     StreamChunk,
 )
 
@@ -135,14 +138,37 @@ class OllamaProvider(LLMProvider):
         prompt: str | list[Message],
         *,
         model: str,
-        schema: type[SchemaT],
+        schema: type[SchemaT] | dict[str, Any],
         options: GenerationOptions | None = None,
-    ) -> SchemaT:
+    ) -> SchemaT | dict[str, Any]:
+        json_schema = schema if isinstance(schema, dict) else schema.model_json_schema()
         path, payload = self._build_request(
-            prompt, model=model, options=options, stream=False, schema=schema.model_json_schema()
+            prompt, model=model, options=options, stream=False, schema=json_schema
         )
         data = await self._post(path, payload, model=model)
-        return schema.model_validate_json(_extract_text(data))
+        text = _extract_text(data)
+
+        if isinstance(schema, dict):
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise StructuredOutputError(
+                    f"Model did not return valid JSON: {exc}", raw_text=text
+                ) from exc
+            try:
+                jsonschema.validate(parsed, schema)
+            except jsonschema.ValidationError as exc:
+                raise StructuredOutputError(
+                    f"Output did not match the provided schema: {exc.message}", raw_text=text
+                ) from exc
+            return parsed
+
+        try:
+            return schema.model_validate_json(text)
+        except ValidationError as exc:
+            raise StructuredOutputError(
+                f"Output did not match schema '{schema.__name__}': {exc}", raw_text=text
+            ) from exc
 
     async def stream(
         self,
@@ -161,10 +187,19 @@ class OllamaProvider(LLMProvider):
                         continue
                     data = json.loads(line)
                     done = bool(data.get("done"))
+                    prompt_tokens = data.get("prompt_eval_count")
+                    completion_tokens = data.get("eval_count")
                     yield StreamChunk(
                         delta=_extract_text(data),
                         done=done,
                         finish_reason="stop" if done else None,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        total_tokens=(
+                            (prompt_tokens or 0) + (completion_tokens or 0)
+                            if prompt_tokens is not None or completion_tokens is not None
+                            else None
+                        ),
                     )
         except httpx.RequestError as exc:
             raise ProviderConnectionError(
@@ -189,7 +224,41 @@ class OllamaProvider(LLMProvider):
             raw=data,
         )
 
-    async def _post(self, path: str, payload: dict[str, Any], *, model: str) -> dict[str, Any]:
+    async def get_models(self) -> list[ModelSummary]:
+        data = await self._get("/api/tags")
+        summaries = []
+        for entry in data.get("models", []):
+            details = entry.get("details", {})
+            summaries.append(
+                ModelSummary(
+                    name=entry.get("name") or entry.get("model"),
+                    provider=self.name,
+                    size_bytes=entry.get("size"),
+                    modified_at=entry.get("modified_at"),
+                    parameter_size=details.get("parameter_size"),
+                    quantization=details.get("quantization_level"),
+                    family=details.get("family"),
+                    # Ollama's /api/tags doesn't report capabilities — a
+                    # per-model /api/show call would, but that's an N+1
+                    # request pattern this list endpoint deliberately avoids.
+                    capabilities=None,
+                )
+            )
+        return summaries
+
+    async def _get(self, path: str) -> dict[str, Any]:
+        try:
+            response = await self._client.get(path)
+        except httpx.RequestError as exc:
+            raise ProviderConnectionError(
+                f"Could not reach Ollama at {self.base_url}: {exc}"
+            ) from exc
+        await self._raise_for_status(response)
+        return response.json()
+
+    async def _post(
+        self, path: str, payload: dict[str, Any], *, model: str | None = None
+    ) -> dict[str, Any]:
         try:
             response = await self._client.post(path, json=payload)
         except httpx.RequestError as exc:
@@ -199,8 +268,10 @@ class OllamaProvider(LLMProvider):
         await self._raise_for_status(response, model=model)
         return response.json()
 
-    async def _raise_for_status(self, response: httpx.Response, *, model: str) -> None:
-        if response.status_code == 404:
+    async def _raise_for_status(
+        self, response: httpx.Response, *, model: str | None = None
+    ) -> None:
+        if response.status_code == 404 and model is not None:
             raise ModelNotFoundError(model=model, provider=self.name)
         if response.status_code >= 400:
             await response.aread()

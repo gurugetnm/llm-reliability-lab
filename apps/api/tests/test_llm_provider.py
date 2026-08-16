@@ -15,6 +15,7 @@ from reliability_lab_llm import (
     ModelNotFoundError,
     OllamaProvider,
     ProviderConnectionError,
+    StructuredOutputError,
 )
 from reliability_lab_llm.types import Message
 
@@ -168,3 +169,112 @@ async def test_connection_error_is_wrapped() -> None:
 
     with pytest.raises(ProviderConnectionError):
         await provider.generate("hi", model="llama3.1")
+
+
+async def test_get_models_maps_tags_response() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/tags"
+        return httpx.Response(
+            200,
+            json={
+                "models": [
+                    {
+                        "name": "llama3.1:8b",
+                        "size": 4_920_753_328,
+                        "modified_at": "2026-01-05T10:00:00Z",
+                        "details": {
+                            "parameter_size": "8.0B",
+                            "quantization_level": "Q4_0",
+                            "family": "llama",
+                        },
+                    }
+                ]
+            },
+        )
+
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://ollama.test"
+    )
+    provider = OllamaProvider(base_url="http://localhost:11434", client=client)
+
+    models = await provider.get_models()
+
+    assert len(models) == 1
+    assert models[0].name == "llama3.1:8b"
+    assert models[0].provider == "ollama"
+    assert models[0].size_bytes == 4_920_753_328
+    assert models[0].parameter_size == "8.0B"
+    assert models[0].family == "llama"
+
+
+async def test_get_models_empty_when_none_installed() -> None:
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"models": []})),
+        base_url="http://ollama.test",
+    )
+    provider = OllamaProvider(base_url="http://localhost:11434", client=client)
+
+    assert await provider.get_models() == []
+
+
+async def test_get_models_raises_connection_error_when_unreachable() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://ollama.test"
+    )
+    provider = OllamaProvider(base_url="http://localhost:11434", client=client)
+
+    with pytest.raises(ProviderConnectionError):
+        await provider.get_models()
+
+
+async def test_generate_structured_accepts_a_raw_json_schema() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert body["format"] == {"type": "object", "properties": {"value": {"type": "integer"}}}
+        return httpx.Response(200, json={"response": json.dumps({"value": 42}), "done": True})
+
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://ollama.test"
+    )
+    provider = OllamaProvider(base_url="http://localhost:11434", client=client)
+
+    result = await provider.generate_structured(
+        "What is 6*7?",
+        model="llama3.1",
+        schema={"type": "object", "properties": {"value": {"type": "integer"}}},
+    )
+
+    assert result == {"value": 42}
+
+
+async def test_generate_structured_raises_on_non_json_output() -> None:
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda r: httpx.Response(200, json={"response": "not json at all", "done": True})
+        ),
+        base_url="http://ollama.test",
+    )
+    provider = OllamaProvider(base_url="http://localhost:11434", client=client)
+
+    with pytest.raises(StructuredOutputError) as exc_info:
+        await provider.generate_structured("hi", model="llama3.1", schema={"type": "object"})
+    assert exc_info.value.raw_text == "not json at all"
+
+
+async def test_generate_structured_raises_when_schema_does_not_match() -> None:
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda r: httpx.Response(
+                200, json={"response": json.dumps({"wrong": "shape"}), "done": True}
+            )
+        ),
+        base_url="http://ollama.test",
+    )
+    provider = OllamaProvider(base_url="http://localhost:11434", client=client)
+
+    schema = {"type": "object", "properties": {"value": {"type": "integer"}}, "required": ["value"]}
+    with pytest.raises(StructuredOutputError):
+        await provider.generate_structured("hi", model="llama3.1", schema=schema)

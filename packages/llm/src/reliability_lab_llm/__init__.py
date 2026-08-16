@@ -11,6 +11,7 @@ from reliability_lab_llm.exceptions import (
     ModelNotFoundError,
     ProviderConnectionError,
     ProviderError,
+    StructuredOutputError,
 )
 from reliability_lab_llm.ollama import OllamaProvider
 from reliability_lab_llm.types import (
@@ -18,6 +19,7 @@ from reliability_lab_llm.types import (
     GenerationResult,
     Message,
     ModelInfo,
+    ModelSummary,
     StreamChunk,
 )
 
@@ -29,9 +31,11 @@ __all__ = [
     "GenerationOptions",
     "GenerationResult",
     "ModelInfo",
+    "ModelSummary",
     "Message",
     "StreamChunk",
     "ProviderError",
     "ProviderConnectionError",
     "ModelNotFoundError",
+    "StructuredOutputError",
 ]

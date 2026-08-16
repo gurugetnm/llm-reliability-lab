@@ -7,6 +7,7 @@ to know which provider they're talking to.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -53,11 +54,19 @@ class GenerationResult(BaseModel):
 
 
 class StreamChunk(BaseModel):
-    """A single chunk emitted while streaming a generation."""
+    """A single chunk emitted while streaming a generation.
+
+    Token counts are only known once generation finishes, so they're
+    only populated on the final chunk (`done=True`) — providers that
+    report usage mid-stream are free to populate them earlier too.
+    """
 
     delta: str
     done: bool = False
     finish_reason: str | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
 
 
 class ModelInfo(BaseModel):
@@ -69,3 +78,25 @@ class ModelInfo(BaseModel):
     quantization: str | None = None
     context_length: int | None = None
     raw: dict[str, Any] | None = None
+
+
+class ModelSummary(BaseModel):
+    """One entry in a provider's list of currently available models.
+
+    Deliberately lighter than `ModelInfo` — it's built from whatever a
+    provider's "list models" call returns cheaply (e.g. Ollama's
+    `/api/tags`), without a per-model deep lookup. Fields a provider
+    can't report are `None` rather than guessed.
+    """
+
+    name: str
+    provider: str
+    size_bytes: int | None = None
+    modified_at: datetime | None = None
+    parameter_size: str | None = None
+    quantization: str | None = None
+    family: str | None = None
+    capabilities: list[str] | None = Field(
+        default=None,
+        description="Detected capabilities (e.g. 'tools', 'vision'), when cheaply available.",
+    )

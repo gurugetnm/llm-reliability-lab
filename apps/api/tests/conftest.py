@@ -12,14 +12,17 @@ into one another.
 """
 
 import os
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable, Iterator
 
+import pytest
 import pytest_asyncio
 from app.config import get_settings
 from app.db.base import Base
 from app.db.session import get_db
+from app.llm.dependencies import get_llm_provider
 from app.main import app
 from httpx import ASGITransport, AsyncClient
+from reliability_lab_llm import LLMProvider
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -74,3 +77,16 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient]:
     async with AsyncClient(transport=transport, base_url="http://testserver") as ac:
         yield ac
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def set_provider() -> Iterator[Callable[[LLMProvider], None]]:
+    """Overrides the LLMProvider dependency for tests that don't want to
+    talk to a real (or even mocked) Ollama — see `tests/fakes.py`.
+    """
+
+    def _set(provider: LLMProvider) -> None:
+        app.dependency_overrides[get_llm_provider] = lambda: provider
+
+    yield _set
+    app.dependency_overrides.pop(get_llm_provider, None)

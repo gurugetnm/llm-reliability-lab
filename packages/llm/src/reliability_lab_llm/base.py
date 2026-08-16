@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
@@ -13,6 +13,7 @@ from reliability_lab_llm.types import (
     GenerationResult,
     Message,
     ModelInfo,
+    ModelSummary,
     StreamChunk,
 )
 
@@ -48,10 +49,18 @@ class LLMProvider(ABC):
         prompt: str | list[Message],
         *,
         model: str,
-        schema: type[SchemaT],
+        schema: type[SchemaT] | dict[str, Any],
         options: GenerationOptions | None = None,
-    ) -> SchemaT:
-        """Generate a completion constrained to (and parsed as) `schema`."""
+    ) -> SchemaT | dict[str, Any]:
+        """Generate a completion constrained to (and parsed as) `schema`.
+
+        `schema` is either a Pydantic model type — for internal/typed
+        callers (future eval/agent code), which get back a validated
+        instance — or a raw JSON Schema `dict` — for callers building a
+        schema at runtime (e.g. the Playground), which get back a plain
+        validated `dict`. Both raise `StructuredOutputError` (carrying
+        the raw model output) if the response doesn't parse or validate.
+        """
         raise NotImplementedError
 
     @abstractmethod
@@ -68,4 +77,9 @@ class LLMProvider(ABC):
     @abstractmethod
     async def get_model_info(self, model: str) -> ModelInfo:
         """Return metadata about `model` as reported by this provider."""
+        raise NotImplementedError
+
+    @abstractmethod
+    async def get_models(self) -> list[ModelSummary]:
+        """List models currently available on this provider."""
         raise NotImplementedError
