@@ -7,6 +7,7 @@ that routes call the provider correctly and translate its results/
 errors into the right HTTP responses.
 """
 
+import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -103,3 +104,88 @@ class FakeLLMProvider(LLMProvider):
         if self._models_error:
             raise self._models_error
         return self._models
+
+
+class ScriptedLLMProvider(LLMProvider):
+    """A programmable `LLMProvider` for `ExperimentRunner` tests.
+
+    Each call to `generate`/`generate_structured` consumes the next
+    entry from `outcomes` (an exception is raised, anything else is
+    returned as the result) — so a test can script "item 2 fails, the
+    rest succeed" deterministically. Tracks concurrency in-flight so
+    tests can assert the runner never exceeds its configured limit.
+    """
+
+    name = "scripted"
+
+    def __init__(
+        self,
+        outcomes: list[Any],
+        *,
+        delay_seconds: float = 0.0,
+    ) -> None:
+        self._outcomes = outcomes
+        self._delay_seconds = delay_seconds
+        self._call_index = 0
+        self._lock = asyncio.Lock()
+        self.in_flight = 0
+        self.max_in_flight = 0
+        self.call_count = 0
+
+    async def _next_outcome(self) -> Any:
+        async with self._lock:
+            index = min(self._call_index, len(self._outcomes) - 1)
+            self._call_index += 1
+            self.call_count += 1
+            self.in_flight += 1
+            self.max_in_flight = max(self.max_in_flight, self.in_flight)
+        try:
+            if self._delay_seconds:
+                await asyncio.sleep(self._delay_seconds)
+            return self._outcomes[index]
+        finally:
+            async with self._lock:
+                self.in_flight -= 1
+
+    async def generate(
+        self,
+        prompt: str | list[Message],
+        *,
+        model: str,
+        options: GenerationOptions | None = None,
+    ) -> GenerationResult:
+        outcome = await self._next_outcome()
+        if isinstance(outcome, Exception):
+            raise outcome
+        assert isinstance(outcome, GenerationResult)
+        return outcome
+
+    async def generate_structured(
+        self,
+        prompt: str | list[Message],
+        *,
+        model: str,
+        schema: Any,
+        options: GenerationOptions | None = None,
+    ) -> StructuredGenerationResult[Any]:
+        outcome = await self._next_outcome()
+        if isinstance(outcome, Exception):
+            raise outcome
+        assert isinstance(outcome, StructuredGenerationResult)
+        return outcome
+
+    async def stream(
+        self,
+        prompt: str | list[Message],
+        *,
+        model: str,
+        options: GenerationOptions | None = None,
+    ) -> AsyncIterator[StreamChunk]:
+        raise NotImplementedError
+        yield  # pragma: no cover — makes this an async generator
+
+    async def get_model_info(self, model: str) -> ModelInfo:
+        raise NotImplementedError
+
+    async def get_models(self) -> list[ModelSummary]:
+        return []
