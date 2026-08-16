@@ -13,11 +13,12 @@ single LLM API. It's meant to feel like a developer tool — Linear,
 Vercel, and modern observability platforms are the reference points, not
 "AI startup" gradients and glow.
 
-> **Status:** Phase 1 (Foundation) and Phase 2 (LLM Execution) are
-> complete — you can run a prompt against a local Ollama model through
-> the Playground UI, streamed, with structured output and execution
-> metadata. The experiment/evaluation/RAG engines described below are
-> not built yet. See [`docs/roadmap.md`](docs/roadmap.md).
+> **Status:** Phases 1–3 are complete — Foundation, LLM Execution
+> (Playground), and the Experiment Engine: datasets, reproducible
+> experiments, dataset-wide runs with bounded concurrency and live
+> progress, and run comparison. The evaluation/RAG engines described
+> below are not built yet. See [`docs/roadmap.md`](docs/roadmap.md) and
+> [`docs/experiments.md`](docs/experiments.md).
 
 ## Why
 
@@ -34,14 +35,16 @@ Dataset → Experiment → Prompt → Model → RAG / Tools → LLM → Trace �
 ```
 
 That's the pipeline the whole system is building toward. So far:
-the project foundation, the LLM abstraction, basic project management,
-and single-prompt LLM execution (Playground) are implemented — there's
-no persisted `Experiment`/`Trace`/`Evaluation` yet. See
-[`docs/architecture.md`](docs/architecture.md) for the full breakdown of
-how the frontend, backend, database, and LLM abstraction are put
-together, [`docs/llm-execution.md`](docs/llm-execution.md) for how a
-Playground run actually flows end to end, and
-[`docs/roadmap.md`](docs/roadmap.md) for what's next.
+the project foundation, the LLM abstraction, project management,
+single-prompt LLM execution (Playground), and the full
+`Dataset → Experiment → Run` slice are implemented — `Trace`/`Evaluation`
+don't exist yet. See [`docs/architecture.md`](docs/architecture.md) for
+the full breakdown of how the frontend, backend, database, and LLM
+abstraction are put together, [`docs/llm-execution.md`](docs/llm-execution.md)
+for how a Playground run flows end to end,
+[`docs/experiments.md`](docs/experiments.md) for the experiment
+engine's architecture, and [`docs/roadmap.md`](docs/roadmap.md) for
+what's next.
 
 ```
 apps/
@@ -142,19 +145,30 @@ alembic -c apps/api/alembic.ini upgrade head
   non-streaming structured JSON output validated against a schema you
   define, execution metadata (latency, token usage, finish reason),
   and a lightweight localStorage run history
-- Every other section (Experiments, Datasets, Evaluations, Traces,
-  Settings) renders a real empty state explaining what's coming and
-  when, rather than a stub
+- **Datasets**: create datasets, add/edit/delete items (plain text or
+  JSON), paginated item browsing, and JSON/JSONL bulk import with
+  per-line validation errors — nothing imports silently or partially
+- **Experiments**: reproducible configurations — dataset, model, system
+  + user prompt template (`{{input}}`), generation parameters, optional
+  structured-output schema — with a review screen before running
+- **Runs**: executing an experiment across its whole dataset with
+  bounded concurrency (configurable, capped), live SSE progress, a
+  per-item run inspector (prompt, response, tokens, latency, classified
+  errors), cooperative cancellation, and run history
+- **Run comparison**: two runs' responses side by side per dataset item,
+  with a word-level diff — no quality scores yet, that's Phase 4
+- Every other section (Evaluations, Traces, Settings) renders a real
+  empty state explaining what's coming and when, rather than a stub
 - `GET /api/v1/health` and `GET /api/v1/models/health` — service,
   database, and Ollama connectivity status
 - `LLMProvider` interface + a fully implemented, tested `OllamaProvider`
   (chat and completion prompts, structured output, streaming, model
-  discovery) — now wired into the Playground and Models pages
+  discovery) — wired into the Playground, Models, and Experiment Runner
 
 ## Roadmap
 
-Phase 1 (Foundation) → **Phase 2 (LLM Execution, this repo)** → Phase 3
-(Experiment Engine) → Phase 4 (Evaluation) → Phase 5 (RAG) → Phase 6
+Phase 1 (Foundation) → Phase 2 (LLM Execution) → **Phase 3 (Experiment
+Engine, this repo)** → Phase 4 (Evaluation) → Phase 5 (RAG) → Phase 6
 (Observability) → Phase 7 (Model Routing) → Phase 8 (Agent Evaluation)
 → Phase 9 (MCP) → Phase 10 (Automated Optimization). Full detail in
 [`docs/roadmap.md`](docs/roadmap.md).

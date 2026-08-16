@@ -25,20 +25,30 @@ lives in the browser (localStorage); the permanent run/trace schema
 and comparison UI are Phase 3. See
 [`docs/llm-execution.md`](./llm-execution.md).
 
-## Phase 3 — Experiment engine
+## Phase 3 — Experiment engine ✅
 
-The `Dataset → Experiment → Prompt → Model → LLM` half of the
-pipeline: experiments as first-class objects with versioned prompts,
-running an experiment across multiple models/configurations, and a
-side-by-side diff view of outputs. This is also where `tests/`
-(top-level, cross-app integration tests) gets its first real content.
+The `Dataset → Experiment → Run → RunItem` half of the pipeline:
+datasets (with JSON/JSONL import), experiments as first-class
+reproducible configurations, a runner that executes an experiment
+across a dataset under bounded concurrency with per-item failure
+handling and cooperative cancellation, live SSE progress, and a
+side-by-side run comparison view. See
+[`docs/experiments.md`](./experiments.md) for the full architecture.
+Evaluation (scoring outputs, quality verdicts) is deliberately not part
+of this phase — see Phase 4.
 
 ## Phase 4 — Evaluation engine
 
-Scoring experiment outputs against a dataset: exact-match/regex
-scorers, embedding-similarity scorers, LLM-as-judge (via
-`generate_structured()`), and regression detection comparing metrics
-across runs over time. `packages/evaluation` gets implemented here.
+Scoring `RunItem` outputs against a dataset item's expected answer:
+exact-match/regex scorers, embedding-similarity scorers, LLM-as-judge
+(via `generate_structured()`), and regression detection comparing
+metrics across runs over time. Results land in a new `EvaluationResult`
+table (metric, score, reason, evaluator) referencing `run_item_id` —
+`RunItem` itself never grows a score column, so evaluation stays a
+separate, re-runnable concern on top of Phase 3's execution records.
+`packages/evaluation` gets implemented here. This is also where the
+Phase 3 run-comparison view gains actual quality verdicts, rather than
+just a text diff.
 
 ## Phase 5 — RAG evaluation
 

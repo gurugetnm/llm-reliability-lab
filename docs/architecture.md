@@ -46,9 +46,10 @@ testable and importable from a script or notebook without booting FastAPI.
   client, including a hand-rolled SSE reader (`stream.ts`, over `fetch`
   rather than `EventSource` since streaming requires a POST body) and
   the `useGeneration()` hook that drives the Playground's state machine.
-  No React Query / SWR yet — the data-fetching surface is still small
-  enough that plain `useEffect`/`useState` stays readable; revisit once
-  experiments and evaluations add more of it.
+  `src/lib/runs/events.ts` is the same SSE-over-`fetch` pattern applied
+  to run progress (`GET /runs/{id}/events`). No React Query / SWR yet —
+  the data-fetching surface is still small enough that plain
+  `useEffect`/`useState` stays readable; revisit if it stops being true.
 - **Theming:** `next-themes` drives a `class`-based dark mode; every
   color is a CSS variable in `globals.css`, themed per-mode. Components
   reference tokens (`bg-card`, `text-muted-foreground`, ...), never raw
@@ -66,23 +67,30 @@ testable and importable from a script or notebook without booting FastAPI.
 apps/api/app/
   main.py          FastAPI app, middleware, exception handlers, router mount
   config.py        Settings (pydantic-settings, env-var driven)
-  core/            Cross-cutting: structured logging, exception types/handlers
+  core/            Cross-cutting: structured logging, exception types/handlers, SSE formatting
   api/
-    routes/        One module per resource (health.py, projects.py, models.py, generate.py)
+    routes/        One module per resource (health, projects, datasets, experiments, runs, models, generate)
     router.py       Aggregates routes under /api/v1
     deps.py         Shared FastAPI dependencies (DbSession, ...)
   db/               Engine/session setup, declarative Base + mixins
   models/           SQLAlchemy ORM models
   schemas/          Pydantic request/response models
+  repositories/      Thin, rule-free data-access functions (one module per aggregate root)
   services/         Business logic, framework-agnostic (no FastAPI imports)
+  experiments/      The experiment engine: prompt templates, the runner, concurrency, lifecycle, error classification, the SSE event bus — see docs/experiments.md
   llm/              FastAPI-specific wiring for the LLM provider abstraction
 ```
 
 **Layering:** routes translate HTTP ⟷ Pydantic schemas and delegate to
-`services/`; services take a session and ORM models and contain the
-actual logic. This means `services/project_service.py` is reusable from
-a script, a background job, or a test without importing FastAPI or
-constructing a request.
+`services/`; services take a session and ORM models, validate business
+rules (ownership, lifecycle, prompt templates), and delegate raw
+queries to `repositories/`. This means `services/project_service.py` (or
+`experiment_service.py`, `run_service.py`, ...) is reusable from a
+script, a background job, or a test without importing FastAPI or
+constructing a request — and `app/experiments/runner.py` specifically
+takes a plain `LLMProvider` and session factory, not a FastAPI
+dependency, so it runs the same way from a background `asyncio.Task`
+today as it would from a real job queue later.
 
 **Error handling:** routes/services raise typed exceptions
 (`app.core.exceptions.NotFoundError`, etc.) rather than building
@@ -120,10 +128,18 @@ place — better to prove the extension works now than to migrate later.
 - **Tests** run against a dedicated `<database>_test` database (created
   by `docker/postgres/init.sql`), never the database local dev / Docker
   Compose's `api` service use — see `apps/api/tests/conftest.py`.
+- **Request-scoped sessions commit on success, roll back on exception**
+  (`app/db/session.py`'s `get_db`) — the standard pattern, so a service
+  that only calls `db.flush()` for a mid-request id still ends up
+  durably persisted once the request completes.
 
-Only `projects` exists so far. Future tables (datasets, experiments,
-evaluation runs, traces) are added incrementally, each with its own
-migration, as the corresponding feature is built — not speculatively.
+Tables: `projects`, `datasets`, `dataset_items`, `experiments`,
+`experiment_runs`, `run_items` — see
+[`docs/experiments.md`](./experiments.md#data-model) for the full
+entity-relationship diagram and the reasoning behind each table's
+cascade/constraint choices. Future tables (evaluation results, traces)
+are added incrementally, each with its own migration, as the
+corresponding feature is built — not speculatively.
 
 ## LLM provider abstraction
 
@@ -157,14 +173,32 @@ calls out of a model, rather than parsing free text. See
 [`docs/llm-execution.md`](./llm-execution.md) for the full request flow,
 including streaming.
 
+## Experiment engine architecture (Phase 3)
+
+```
+Dataset → Experiment → ExperimentRun → ExperimentRunner → GenerationService → LLMProvider → Ollama → RunItem
+```
+
+An `Experiment` is a reproducible configuration (dataset + model +
+prompts + generation parameters); running it produces an
+`ExperimentRun` and one `RunItem` per dataset item. The runner is
+independent of FastAPI, runs dataset items under bounded concurrency
+(`asyncio.Semaphore`, default 3, hard-capped at 10), classifies and
+persists per-item failures without aborting the run, and supports
+cooperative cancellation. Progress streams over SSE from an in-process
+pub/sub bus. Full detail, diagrams, and the reasoning behind every
+cascade/constraint choice: [`docs/experiments.md`](./experiments.md).
+
 ## Future: evaluation architecture (Phase 4)
 
 Not implemented yet (`packages/evaluation` is a scaffold). Expected
 shape: a `Scorer` interface (exact-match/regex, embedding similarity,
-LLM-as-judge via `LLMProvider.generate_structured()`) run against an
-experiment's outputs and a dataset's expected answers, producing metrics
-attached to an evaluation run. Regression detection compares metrics
-across runs over time.
+LLM-as-judge via `LLMProvider.generate_structured()`) run against a
+`RunItem`'s response and its dataset item's expected answer, producing
+an `EvaluationResult` (metric, score, reason, evaluator) — a separate
+table referencing `run_item_id`, never a column on `RunItem` itself, so
+evaluation stays additive and re-runnable without re-executing the
+experiment. Regression detection compares metrics across runs over time.
 
 ## Future: RAG architecture (Phase 5)
 
