@@ -7,6 +7,8 @@ engine (Phase 3) will build requests the same way, just from a stored
 prompt/config instead of a request body.
 """
 
+from typing import Any
+
 from reliability_lab_llm import GenerationOptions, LLMProvider, Message
 from reliability_lab_llm.types import GenerationResult, StructuredGenerationResult
 
@@ -42,7 +44,7 @@ def build_parameters(request: GenerateRequest) -> GenerationParameters:
     )
 
 
-def _usage_from_result(result: GenerationResult | StructuredGenerationResult[object]) -> TokenUsage:
+def _usage_from_result(result: GenerationResult | StructuredGenerationResult[Any]) -> TokenUsage:
     return TokenUsage(
         prompt_tokens=result.prompt_tokens,
         completion_tokens=result.completion_tokens,
@@ -70,7 +72,7 @@ async def run_structured_generation(
 ) -> ExecutionResult:
     assert request.response_schema is not None  # enforced by the route before calling this
 
-    result = await provider.generate_structured(
+    result: StructuredGenerationResult[Any] = await provider.generate_structured(
         build_messages(request),
         model=request.model,
         schema=request.response_schema,
