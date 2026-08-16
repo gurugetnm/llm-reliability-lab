@@ -9,13 +9,16 @@ decide what shape they need, not this schema. See `docs/experiments.md`.
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
+
+if TYPE_CHECKING:
+    from app.models.experiment import Experiment
 
 
 class Dataset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -33,6 +36,7 @@ class Dataset(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     items: Mapped[list[DatasetItem]] = relationship(
         back_populates="dataset", cascade="all, delete-orphan", passive_deletes=True
     )
+    experiments: Mapped[list[Experiment]] = relationship(back_populates="dataset")
 
     def __repr__(self) -> str:
         return f"Dataset(id={self.id!r}, name={self.name!r}, version={self.version})"
