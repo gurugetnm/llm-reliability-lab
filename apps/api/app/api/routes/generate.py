@@ -15,13 +15,13 @@ import logging
 import time
 import uuid
 from collections.abc import AsyncIterator
-from typing import Any
 
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from reliability_lab_llm import ModelNotFoundError, ProviderConnectionError, ProviderError
 
 from app.core.exceptions import ValidationError
+from app.core.sse import format_sse_event
 from app.llm.dependencies import LLMProviderDep
 from app.schemas.generation import ExecutionResult, GenerateRequest, TokenUsage
 from app.services import generation_service
@@ -35,10 +35,6 @@ async def generate(request: GenerateRequest, provider: LLMProviderDep) -> Execut
     if request.response_schema is not None:
         return await generation_service.run_structured_generation(provider, request)
     return await generation_service.run_text_generation(provider, request)
-
-
-def _sse(event: str, data: dict[str, Any]) -> str:
-    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
 @router.post("/generate/stream")
@@ -65,16 +61,16 @@ async def generate_stream(request: GenerateRequest, provider: LLMProviderDep) ->
                         completion_tokens=chunk.completion_tokens,
                         total_tokens=chunk.total_tokens,
                     )
-                yield _sse("chunk", {"delta": chunk.delta, "done": chunk.done})
+                yield format_sse_event("chunk", {"delta": chunk.delta, "done": chunk.done})
         except ModelNotFoundError as exc:
-            yield _sse("error", {"detail": str(exc)})
+            yield format_sse_event("error", {"detail": str(exc)})
             return
         except ProviderConnectionError as exc:
-            yield _sse("error", {"detail": str(exc)})
+            yield format_sse_event("error", {"detail": str(exc)})
             return
         except ProviderError as exc:
             logger.exception("Streaming generation failed")
-            yield _sse("error", {"detail": str(exc)})
+            yield format_sse_event("error", {"detail": str(exc)})
             return
 
         result = ExecutionResult(
@@ -87,7 +83,7 @@ async def generate_stream(request: GenerateRequest, provider: LLMProviderDep) ->
             usage=usage,
             parameters=generation_service.build_parameters(request),
         )
-        yield _sse("done", json.loads(result.model_dump_json()))
+        yield format_sse_event("done", json.loads(result.model_dump_json()))
 
     return StreamingResponse(
         event_source(),

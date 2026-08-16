@@ -5,6 +5,7 @@
     GET  /runs/{id}                  run detail
     GET  /runs/{id}/items            paginated run items
     POST /runs/{id}/cancel           request cancellation
+    GET  /runs/{id}/events           live progress (SSE)
 
 Split into two routers (nested under `/experiments` vs. top-level
 `/runs`) because a run outlives the "start" call — once started, it's
@@ -12,11 +13,17 @@ addressed by its own id, not through its experiment.
 """
 
 import uuid
+from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, status
+from fastapi.responses import StreamingResponse
 
 from app.api.deps import DbSession
+from app.core.sse import format_sse_event
+from app.experiments.events import run_event_bus
+from app.experiments.lifecycle import is_terminal
 from app.llm.dependencies import LLMProviderDep
+from app.models.experiment import ExperimentRun
 from app.schemas.pagination import DEFAULT_PAGE_SIZE, Page, PageParam, PageSizeParam
 from app.schemas.run import RunItemRead, RunRead, StartRunRequest
 from app.services import run_service
@@ -79,3 +86,47 @@ async def list_run_items(
 async def cancel_run(run_id: uuid.UUID, db: DbSession) -> RunRead:
     run = await run_service.cancel_run(db, run_id)
     return RunRead.model_validate(run)
+
+
+@runs_router.get("/{run_id}/events")
+async def run_events(run_id: uuid.UUID, db: DbSession) -> StreamingResponse:
+    run = await run_service.get_run_or_404(db, run_id)
+
+    async def event_source() -> AsyncIterator[str]:
+        # Already finished by the time a client subscribes (a slow
+        # connection, a page refresh after completion, ...) — send one
+        # terminal snapshot and close instead of hanging forever.
+        if is_terminal(run.status):
+            event = "run_cancelled" if run.status == "cancelled" else "run_completed"
+            yield format_sse_event(event, _run_snapshot(run))
+            return
+
+        queue = run_event_bus.subscribe(run_id)
+        try:
+            # Catches a client up immediately on subscribe, rather than
+            # leaving it waiting for the *next* change to arrive.
+            yield format_sse_event("run_progress", _run_snapshot(run))
+            while True:
+                item = await queue.get()
+                yield format_sse_event(item.event, item.data)
+                if item.event in ("run_completed", "run_cancelled"):
+                    break
+        finally:
+            run_event_bus.unsubscribe(run_id, queue)
+
+    return StreamingResponse(
+        event_source(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+def _run_snapshot(run: ExperimentRun) -> dict[str, object]:
+    return {
+        "run_id": str(run.id),
+        "status": run.status,
+        "total_items": run.total_items,
+        "completed_items": run.completed_items,
+        "successful_items": run.successful_items,
+        "failed_items": run.failed_items,
+    }
