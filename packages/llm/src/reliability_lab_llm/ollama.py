@@ -31,9 +31,26 @@ from reliability_lab_llm.types import (
     ModelInfo,
     ModelSummary,
     StreamChunk,
+    StructuredGenerationResult,
 )
 
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
+
+
+def _usage_from_response(data: dict[str, Any]) -> tuple[int | None, int | None, int | None]:
+    """Extract (prompt, completion, total) token counts from an Ollama
+    response body — shared by `generate` and `generate_structured` so both
+    report usage the same way instead of structured generation silently
+    dropping it.
+    """
+    prompt_tokens = data.get("prompt_eval_count")
+    completion_tokens = data.get("eval_count")
+    total_tokens = (
+        (prompt_tokens or 0) + (completion_tokens or 0)
+        if prompt_tokens is not None or completion_tokens is not None
+        else None
+    )
+    return prompt_tokens, completion_tokens, total_tokens
 
 
 def _to_ollama_options(options: GenerationOptions | None) -> dict[str, Any]:
@@ -113,13 +130,7 @@ class OllamaProvider(LLMProvider):
         data = await self._post(path, payload, model=model)
         latency_ms = (time.perf_counter() - started_at) * 1000
 
-        prompt_tokens = data.get("prompt_eval_count")
-        completion_tokens = data.get("eval_count")
-        total_tokens = (
-            (prompt_tokens or 0) + (completion_tokens or 0)
-            if prompt_tokens is not None or completion_tokens is not None
-            else None
-        )
+        prompt_tokens, completion_tokens, total_tokens = _usage_from_response(data)
 
         return GenerationResult(
             text=_extract_text(data),
@@ -140,13 +151,17 @@ class OllamaProvider(LLMProvider):
         model: str,
         schema: type[SchemaT] | dict[str, Any],
         options: GenerationOptions | None = None,
-    ) -> SchemaT | dict[str, Any]:
+    ) -> StructuredGenerationResult[SchemaT]:
         json_schema = schema if isinstance(schema, dict) else schema.model_json_schema()
         path, payload = self._build_request(
             prompt, model=model, options=options, stream=False, schema=json_schema
         )
+
+        started_at = time.perf_counter()
         data = await self._post(path, payload, model=model)
+        latency_ms = (time.perf_counter() - started_at) * 1000
         text = _extract_text(data)
+        prompt_tokens, completion_tokens, total_tokens = _usage_from_response(data)
 
         if isinstance(schema, dict):
             try:
@@ -161,14 +176,26 @@ class OllamaProvider(LLMProvider):
                 raise StructuredOutputError(
                     f"Output did not match the provided schema: {exc.message}", raw_text=text
                 ) from exc
-            return parsed
+            parsed_data: SchemaT | dict[str, Any] = parsed
+        else:
+            try:
+                parsed_data = schema.model_validate_json(text)
+            except ValidationError as exc:
+                raise StructuredOutputError(
+                    f"Output did not match schema '{schema.__name__}': {exc}", raw_text=text
+                ) from exc
 
-        try:
-            return schema.model_validate_json(text)
-        except ValidationError as exc:
-            raise StructuredOutputError(
-                f"Output did not match schema '{schema.__name__}': {exc}", raw_text=text
-            ) from exc
+        return StructuredGenerationResult(
+            data=parsed_data,
+            model=model,
+            provider=self.name,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            finish_reason="stop" if data.get("done") else None,
+            latency_ms=latency_ms,
+            raw=data,
+        )
 
     async def stream(
         self,

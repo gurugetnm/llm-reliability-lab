@@ -7,8 +7,9 @@ to know which provider they're talking to.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -51,6 +52,36 @@ class GenerationResult(BaseModel):
         default=None,
         description="The provider's raw response, kept for debugging and future tracing.",
     )
+
+
+SchemaT = TypeVar("SchemaT", bound=BaseModel)
+
+
+@dataclass
+class StructuredGenerationResult(Generic[SchemaT]):  # noqa: UP046 — PEP 695 needs Python 3.12+, this package supports 3.11+
+    """The outcome of a single structured (schema-constrained) generation.
+
+    Mirrors `GenerationResult`'s execution metadata (tokens, latency,
+    finish reason, raw response) so structured generation is never a
+    second-class citizen next to plain-text generation — callers get the
+    same usage data regardless of which one they used. A plain
+    dataclass (not a `BaseModel`) because `data` is either a validated
+    Pydantic instance or a plain `dict`, and pydantic's generics don't
+    handle that union cleanly.
+
+    Fields Ollama doesn't report are left `None` — usage numbers are
+    never invented.
+    """
+
+    data: SchemaT | dict[str, Any]
+    model: str
+    provider: str
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+    finish_reason: str | None = None
+    latency_ms: float | None = None
+    raw: dict[str, Any] | None = None
 
 
 class StreamChunk(BaseModel):

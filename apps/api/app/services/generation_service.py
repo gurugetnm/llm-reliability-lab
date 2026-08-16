@@ -7,10 +7,8 @@ engine (Phase 3) will build requests the same way, just from a stored
 prompt/config instead of a request body.
 """
 
-import time
-
 from reliability_lab_llm import GenerationOptions, LLMProvider, Message
-from reliability_lab_llm.types import GenerationResult
+from reliability_lab_llm.types import GenerationResult, StructuredGenerationResult
 
 from app.schemas.generation import (
     ExecutionResult,
@@ -44,7 +42,7 @@ def build_parameters(request: GenerateRequest) -> GenerationParameters:
     )
 
 
-def _usage_from_result(result: GenerationResult) -> TokenUsage:
+def _usage_from_result(result: GenerationResult | StructuredGenerationResult[object]) -> TokenUsage:
     return TokenUsage(
         prompt_tokens=result.prompt_tokens,
         completion_tokens=result.completion_tokens,
@@ -72,21 +70,21 @@ async def run_structured_generation(
 ) -> ExecutionResult:
     assert request.response_schema is not None  # enforced by the route before calling this
 
-    started_at = time.perf_counter()
-    data = await provider.generate_structured(
+    result = await provider.generate_structured(
         build_messages(request),
         model=request.model,
         schema=request.response_schema,
         options=build_options(request),
     )
-    latency_ms = (time.perf_counter() - started_at) * 1000
+    data = result.data
 
     return ExecutionResult(
-        model=request.model,
-        provider=provider.name,
+        model=result.model,
+        provider=result.provider,
         response="",
         structured_output=data if isinstance(data, dict) else data.model_dump(mode="json"),
-        latency_ms=latency_ms,
-        usage=TokenUsage(),
+        finish_reason=result.finish_reason,
+        latency_ms=result.latency_ms or 0.0,
+        usage=_usage_from_result(result),
         parameters=build_parameters(request),
     )

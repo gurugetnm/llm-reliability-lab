@@ -15,6 +15,7 @@ from reliability_lab_llm.types import (
     ModelInfo,
     ModelSummary,
     StreamChunk,
+    StructuredGenerationResult,
 )
 
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
@@ -51,15 +52,20 @@ class LLMProvider(ABC):
         model: str,
         schema: type[SchemaT] | dict[str, Any],
         options: GenerationOptions | None = None,
-    ) -> SchemaT | dict[str, Any]:
+    ) -> StructuredGenerationResult[SchemaT]:
         """Generate a completion constrained to (and parsed as) `schema`.
 
         `schema` is either a Pydantic model type — for internal/typed
         callers (future eval/agent code), which get back a validated
-        instance — or a raw JSON Schema `dict` — for callers building a
-        schema at runtime (e.g. the Playground), which get back a plain
-        validated `dict`. Both raise `StructuredOutputError` (carrying
-        the raw model output) if the response doesn't parse or validate.
+        instance in `.data` — or a raw JSON Schema `dict` — for callers
+        building a schema at runtime (e.g. the Playground), which get
+        back a plain validated `dict` in `.data`. Both raise
+        `StructuredOutputError` (carrying the raw model output) if the
+        response doesn't parse or validate.
+
+        Returns a `StructuredGenerationResult` rather than bare data so
+        token usage and latency are always available for structured
+        generation too, on the same footing as `generate()`.
         """
         raise NotImplementedError
 

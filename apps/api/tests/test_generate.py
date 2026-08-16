@@ -153,6 +153,38 @@ async def test_generate_structured_returns_validated_data(
     assert body["structured_output"] == {"summary": "ok", "sentiment": "positive"}
 
 
+async def test_generate_structured_preserves_token_usage(
+    client: AsyncClient, set_provider: Callable[[LLMProvider], None]
+) -> None:
+    """Regression test for the Phase 2 bug where structured generation's
+    `ExecutionResult` always reported empty usage, even when Ollama
+    reported real token counts. Usage must be consistent across normal,
+    streaming, and structured generation."""
+    set_provider(
+        FakeLLMProvider(
+            structured_result={"summary": "ok", "sentiment": "positive"},
+            structured_usage=(10, 5, 15),
+        )
+    )
+
+    response = await client.post(
+        "/api/v1/generate",
+        json={
+            **VALID_REQUEST,
+            "response_schema": {
+                "type": "object",
+                "properties": {"summary": {"type": "string"}, "sentiment": {"type": "string"}},
+                "required": ["summary", "sentiment"],
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["usage"] == {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+    assert body["latency_ms"] > 0
+
+
 async def test_generate_structured_invalid_output_returns_422_with_raw_response(
     client: AsyncClient, set_provider: Callable[[LLMProvider], None]
 ) -> None:

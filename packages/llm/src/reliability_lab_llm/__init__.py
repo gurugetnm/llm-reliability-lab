@@ -21,6 +21,7 @@ from reliability_lab_llm.types import (
     ModelInfo,
     ModelSummary,
     StreamChunk,
+    StructuredGenerationResult,
 )
 
 __version__ = "0.1.0"
@@ -34,6 +35,7 @@ __all__ = [
     "ModelSummary",
     "Message",
     "StreamChunk",
+    "StructuredGenerationResult",
     "ProviderError",
     "ProviderConnectionError",
     "ModelNotFoundError",

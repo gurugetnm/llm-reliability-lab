@@ -98,9 +98,60 @@ async def test_generate_structured_validates_against_schema() -> None:
     )
     provider = OllamaProvider(base_url="http://localhost:11434", client=client)
 
-    answer = await provider.generate_structured("What is 6*7?", model="llama3.1", schema=Answer)
+    result = await provider.generate_structured("What is 6*7?", model="llama3.1", schema=Answer)
 
-    assert answer == Answer(value=42)
+    assert result.data == Answer(value=42)
+
+
+async def test_generate_structured_preserves_token_usage_for_pydantic_schema() -> None:
+    """Regression test: structured generation used to discard Ollama's
+    token counts entirely because `generate_structured` only returned the
+    parsed data. Usage must now be consistent with plain `generate()`."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "response": json.dumps({"value": 42}),
+                "done": True,
+                "prompt_eval_count": 11,
+                "eval_count": 4,
+            },
+        )
+
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://ollama.test"
+    )
+    provider = OllamaProvider(base_url="http://localhost:11434", client=client)
+
+    result = await provider.generate_structured("What is 6*7?", model="llama3.1", schema=Answer)
+
+    assert result.prompt_tokens == 11
+    assert result.completion_tokens == 4
+    assert result.total_tokens == 15
+    assert result.finish_reason == "stop"
+    assert result.latency_ms is not None
+    assert result.model == "llama3.1"
+    assert result.provider == "ollama"
+
+
+async def test_generate_structured_leaves_missing_usage_as_none_never_invented() -> None:
+    """When Ollama doesn't report eval counts, usage must be `None` —
+    never a fabricated number."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"response": json.dumps({"value": 42}), "done": True})
+
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="http://ollama.test"
+    )
+    provider = OllamaProvider(base_url="http://localhost:11434", client=client)
+
+    result = await provider.generate_structured("What is 6*7?", model="llama3.1", schema=Answer)
+
+    assert result.prompt_tokens is None
+    assert result.completion_tokens is None
+    assert result.total_tokens is None
 
 
 async def test_stream_yields_chunks_and_final_done_chunk() -> None:
@@ -247,7 +298,7 @@ async def test_generate_structured_accepts_a_raw_json_schema() -> None:
         schema={"type": "object", "properties": {"value": {"type": "integer"}}},
     )
 
-    assert result == {"value": 42}
+    assert result.data == {"value": 42}
 
 
 async def test_generate_structured_raises_on_non_json_output() -> None:
