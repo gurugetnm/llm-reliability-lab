@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   LayoutDashboard,
+  TerminalSquare,
   FolderKanban,
   FlaskConical,
   Database,
@@ -23,6 +24,12 @@ export const NAV_ITEMS: NavItem[] = [
     href: "/",
     icon: LayoutDashboard,
     description: "Overview of your lab",
+  },
+  {
+    title: "Playground",
+    href: "/playground",
+    icon: TerminalSquare,
+    description: "Run prompts against a local model directly",
   },
   {
     title: "Projects",

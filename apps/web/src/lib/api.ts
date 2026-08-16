@@ -6,12 +6,16 @@
  * per-resource rather than turned into a generic fetch wrapper.
  */
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export class ApiError extends Error {
   constructor(
     message: string,
     public readonly status?: number,
+    /** The full parsed error body, for endpoints that attach extra
+     * fields alongside `detail` (e.g. `raw_response` on a structured
+     * output validation failure). */
+    public readonly body?: unknown,
   ) {
     super(message);
     this.name = "ApiError";
@@ -31,7 +35,7 @@ export interface ProjectCreate {
   description?: string;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`${API_URL}${path}`, {
@@ -53,6 +57,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(
       body?.detail ?? `Request failed with status ${response.status}`,
       response.status,
+      body,
     );
   }
 

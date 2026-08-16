@@ -27,7 +27,12 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       # From inside the container, "localhost" is the container itself —
       # host.docker.internal reaches Ollama running on the host machine.
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      # Deliberately a *different* env var than OLLAMA_BASE_URL (used for
+      # native/non-Docker dev in .env.example): both are read from the
+      # same root .env file, and if this used OLLAMA_BASE_URL too, its
+      # native-dev value of "http://localhost:11434" would silently win
+      # here and point the container at itself instead of the host.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL_DOCKER:-http://host.docker.internal:11434}
       DEFAULT_MODEL: ${DEFAULT_MODEL:-llama3.1}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       ENVIRONMENT: ${ENVIRONMENT:-development}
