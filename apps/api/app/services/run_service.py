@@ -14,6 +14,7 @@ from reliability_lab_llm import LLMProvider
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError, ValidationError
+from app.db.session import AsyncSessionLocal
 from app.experiments.concurrency import clamp_concurrency
 from app.experiments.lifecycle import can_transition
 from app.experiments.runner import ExperimentRunner
@@ -31,7 +32,13 @@ _background_tasks: set[asyncio.Task[None]] = set()
 
 
 def _spawn_run(provider: LLMProvider, run_id: uuid.UUID) -> None:
-    task = asyncio.create_task(ExperimentRunner(provider).execute_run(run_id))
+    # `AsyncSessionLocal` is referenced by name (not passed as a bound
+    # default elsewhere) specifically so tests can monkeypatch
+    # `run_service.AsyncSessionLocal` to point the background runner at
+    # a test database — see tests/test_experiment_integration.py.
+    task = asyncio.create_task(
+        ExperimentRunner(provider, session_factory=AsyncSessionLocal).execute_run(run_id)
+    )
     _background_tasks.add(task)
 
     def _on_done(finished: asyncio.Task[None]) -> None:
