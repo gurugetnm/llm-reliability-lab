@@ -1,0 +1,69 @@
+import { API_URL } from "@/lib/api";
+
+export interface RunProgressSnapshot {
+  run_id: string;
+  status: string;
+  total_items: number;
+  completed_items: number;
+  successful_items: number;
+  failed_items: number;
+}
+
+export type RunEvent =
+  | { type: "run_started" | "run_progress" | "run_completed" | "run_cancelled"; data: RunProgressSnapshot }
+  | { type: "run_item_completed" | "run_item_failed"; data: Record<string, unknown> };
+
+const TERMINAL_EVENTS = new Set(["run_completed", "run_cancelled"]);
+
+function parseSseBlock(raw: string): { event: string; data: string } | null {
+  let event: string | undefined;
+  let data: string | undefined;
+  for (const line of raw.split("\n")) {
+    if (line.startsWith("event: ")) event = line.slice("event: ".length);
+    else if (line.startsWith("data: ")) data = line.slice("data: ".length);
+  }
+  if (!event || data === undefined) return null;
+  return { event, data };
+}
+
+/** Streams `GET /api/v1/runs/{id}/events` as an async generator of typed
+ * events, closing once a terminal (`run_completed`/`run_cancelled`)
+ * event arrives or the connection ends. */
+export async function* streamRunEvents(
+  runId: string,
+  signal?: AbortSignal,
+): AsyncGenerator<RunEvent> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}/api/v1/runs/${runId}/events`, { signal });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return;
+    return;
+  }
+  if (!response.ok || !response.body) return;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let boundary = buffer.indexOf("\n\n");
+      while (boundary !== -1) {
+        const block = parseSseBlock(buffer.slice(0, boundary));
+        buffer = buffer.slice(boundary + 2);
+        if (block) {
+          yield { type: block.event, data: JSON.parse(block.data) } as RunEvent;
+          if (TERMINAL_EVENTS.has(block.event)) return;
+        }
+        boundary = buffer.indexOf("\n\n");
+      }
+    }
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return;
+  }
+}
