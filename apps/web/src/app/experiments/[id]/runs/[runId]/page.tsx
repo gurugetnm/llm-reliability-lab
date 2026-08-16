@@ -159,7 +159,7 @@ export default function RunDetailPage() {
             {run.successful_items} successful
           </span>
           <span className="text-sm text-destructive">{run.failed_items} failed</span>
-          <span className="ml-auto text-xs text-muted-foreground">
+          <span className="basis-full text-xs text-muted-foreground sm:basis-auto sm:ml-auto">
             Started {run.started_at ? formatDistanceToNow(run.started_at) : "not yet"}
           </span>
         </div>
