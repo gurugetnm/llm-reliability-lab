@@ -14,6 +14,20 @@ AsyncSessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False)
 
 
 async def get_db() -> AsyncGenerator[AsyncSession]:
-    """FastAPI dependency yielding a request-scoped database session."""
+    """FastAPI dependency yielding a request-scoped database session.
+
+    Commits once the route handler returns without raising, and rolls
+    back otherwise — the standard "commit on success" request-scoped
+    session pattern. Without this, `session.close()` alone rolls back
+    anything that was only `flush()`ed (never `commit()`ted), so any
+    service that relies on this dependency for durability rather than
+    calling `db.commit()` itself — most of the experiment engine's
+    services — would silently lose every write once the request ends.
+    """
     async with AsyncSessionLocal() as session:
-        yield session
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
