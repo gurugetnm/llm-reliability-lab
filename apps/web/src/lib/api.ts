@@ -97,6 +97,130 @@ export interface DatasetImportResponse {
   imported_count: number;
 }
 
+export interface GenerationConfig {
+  temperature: number;
+  max_tokens?: number | null;
+  top_p?: number | null;
+  stop?: string[] | null;
+  seed?: number | null;
+}
+
+export interface StructuredOutputConfig {
+  schema: Record<string, unknown>;
+}
+
+export type ExperimentRunStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "completed_with_errors"
+  | "failed"
+  | "cancelled";
+
+export interface DatasetSummary {
+  id: string;
+  name: string;
+  item_count: number;
+}
+
+export interface RunSummary {
+  id: string;
+  status: ExperimentRunStatus;
+  total_items: number;
+  completed_items: number;
+  successful_items: number;
+  failed_items: number;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
+
+export interface Experiment {
+  id: string;
+  project_id: string;
+  name: string;
+  description: string | null;
+  dataset: DatasetSummary;
+  system_prompt: string | null;
+  user_prompt_template: string;
+  model: string;
+  generation_config: GenerationConfig;
+  structured_output_config: StructuredOutputConfig | null;
+  latest_run: RunSummary | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExperimentCreate {
+  project_id: string;
+  dataset_id: string;
+  name: string;
+  description?: string;
+  system_prompt?: string;
+  user_prompt_template: string;
+  model: string;
+  generation_config?: GenerationConfig;
+  structured_output_config?: StructuredOutputConfig | null;
+}
+
+export interface ExperimentUpdate {
+  name?: string;
+  description?: string;
+  system_prompt?: string;
+  user_prompt_template?: string;
+  model?: string;
+  generation_config?: GenerationConfig;
+  structured_output_config?: StructuredOutputConfig | null;
+}
+
+export interface ExperimentRun {
+  id: string;
+  experiment_id: string;
+  status: ExperimentRunStatus;
+  started_at: string | null;
+  completed_at: string | null;
+  total_items: number;
+  completed_items: number;
+  successful_items: number;
+  failed_items: number;
+  cancel_requested: boolean;
+  model: string;
+  generation_config: GenerationConfig;
+  concurrency: number;
+  created_at: string;
+}
+
+export type RunItemStatus = "pending" | "running" | "succeeded" | "failed" | "cancelled";
+
+export type RunItemErrorType =
+  | "provider_error"
+  | "timeout"
+  | "validation_error"
+  | "prompt_render_error"
+  | "structured_output_error"
+  | "unknown_error";
+
+export interface RunItem {
+  id: string;
+  run_id: string;
+  dataset_item_id: string | null;
+  status: RunItemStatus;
+  model: string;
+  system_prompt: string | null;
+  user_prompt: string;
+  response: string | null;
+  structured_output: Record<string, unknown> | null;
+  error_type: RunItemErrorType | null;
+  error_message: string | null;
+  latency_ms: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  total_tokens: number | null;
+  generation_config: GenerationConfig;
+  created_at: string;
+  completed_at: string | null;
+}
+
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
@@ -180,4 +304,37 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ format, content }),
     }),
+
+  listExperiments: (projectId?: string) =>
+    request<Experiment[]>(
+      `/api/v1/experiments${projectId ? `?project_id=${projectId}` : ""}`,
+    ),
+  getExperiment: (id: string) => request<Experiment>(`/api/v1/experiments/${id}`),
+  createExperiment: (data: ExperimentCreate) =>
+    request<Experiment>("/api/v1/experiments", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateExperiment: (id: string, data: ExperimentUpdate) =>
+    request<Experiment>(`/api/v1/experiments/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  deleteExperiment: (id: string) =>
+    request<void>(`/api/v1/experiments/${id}`, { method: "DELETE" }),
+
+  startRun: (experimentId: string, concurrency?: number) =>
+    request<ExperimentRun>(`/api/v1/experiments/${experimentId}/runs`, {
+      method: "POST",
+      body: JSON.stringify(concurrency ? { concurrency } : {}),
+    }),
+  listRuns: (experimentId: string, page = 1, pageSize = 20) =>
+    request<Page<ExperimentRun>>(
+      `/api/v1/experiments/${experimentId}/runs?page=${page}&page_size=${pageSize}`,
+    ),
+  getRun: (runId: string) => request<ExperimentRun>(`/api/v1/runs/${runId}`),
+  listRunItems: (runId: string, page = 1, pageSize = 20) =>
+    request<Page<RunItem>>(`/api/v1/runs/${runId}/items?page=${page}&page_size=${pageSize}`),
+  cancelRun: (runId: string) =>
+    request<ExperimentRun>(`/api/v1/runs/${runId}/cancel`, { method: "POST" }),
 };
