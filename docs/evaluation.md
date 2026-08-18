@@ -539,3 +539,9 @@ JSON-Schema form for a form this small.
 - Regression detection compares two evaluations' **mean scores** only;
   it doesn't (and doesn't claim to) do any per-metric statistical
   testing beyond that single, transparent threshold comparison.
+- Aggregate metrics and comparison load every `EvaluationResult` for the
+  run(s) involved into memory in one query (never N+1 — a single
+  `SELECT`, same as `ExperimentRunner` loading a dataset's items) rather
+  than computing aggregates in the database. Fine at the scale this
+  phase targets; an evaluation with hundreds of thousands of items would
+  want a `SELECT avg(score), ...`-style query instead.
