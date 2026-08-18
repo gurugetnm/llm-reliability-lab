@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Ban, ListChecks } from "lucide-react";
+import { Ban, CheckSquare, ListChecks } from "lucide-react";
 import { toast } from "sonner";
 
 import { EmptyState } from "@/components/empty-state";
@@ -18,6 +19,7 @@ import { api, ApiError, type Experiment, type ExperimentRun, type RunItem } from
 
 const PAGE_SIZE = 25;
 const ACTIVE_STATUSES = new Set(["pending", "running"]);
+const TERMINAL_STATUSES = new Set(["completed", "completed_with_errors", "failed", "cancelled"]);
 
 function truncate(text: string | null, max = 100): string {
   if (!text) return "—";
@@ -144,6 +146,16 @@ export default function RunDetailPage() {
             <Button variant="outline" size="sm" disabled={cancelling} onClick={handleCancel}>
               <Ban className="size-3.5" />
               {run.cancel_requested ? "Cancelling…" : cancelling ? "Cancelling…" : "Cancel Run"}
+            </Button>
+          ) : TERMINAL_STATUSES.has(run.status) ? (
+            <Button
+              variant="outline"
+              size="sm"
+              nativeButton={false}
+              render={<Link href={`/evaluations/new?runId=${run.id}`} />}
+            >
+              <CheckSquare className="size-3.5" />
+              Evaluate
             </Button>
           ) : undefined
         }
