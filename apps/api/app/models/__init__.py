@@ -5,6 +5,7 @@ autogenerating migrations — new models must be imported here.
 """
 
 from app.models.dataset import Dataset, DatasetItem
+from app.models.evaluation import EvaluationResult, EvaluationRun
 from app.models.experiment import Experiment, ExperimentRun, RunItem
 from app.models.project import Project
 
@@ -15,4 +16,6 @@ __all__ = [
     "Experiment",
     "ExperimentRun",
     "RunItem",
+    "EvaluationRun",
+    "EvaluationResult",
 ]
