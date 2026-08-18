@@ -14,10 +14,16 @@ RUN apt-get update \
 
 COPY packages/llm packages/llm
 COPY packages/shared packages/shared
+COPY packages/evaluation packages/evaluation
 COPY apps/api apps/api
 
+# The `[embeddings]` extra (sentence-transformers) is installed here so
+# a real deployment can actually run semantic_similarity evaluations out
+# of the box — CI/unit tests deliberately skip it (they use a fake
+# EmbeddingProvider) and never need the extra weight or a model
+# download; see docs/evaluation.md's "Embedding architecture".
 RUN pip install --upgrade pip \
-    && pip install -e packages/llm -e packages/shared -e apps/api
+    && pip install -e packages/llm -e packages/shared -e "packages/evaluation[embeddings]" -e apps/api
 
 WORKDIR /app/apps/api
 EXPOSE 8000
