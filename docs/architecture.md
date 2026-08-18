@@ -12,7 +12,7 @@ apps/
   api/             FastAPI backend
 packages/
   llm/             LLMProvider abstraction (implemented)
-  evaluation/      Evaluation engine (Phase 4, not yet implemented)
+  evaluation/      Evaluation engine — evaluator abstraction, registry, metrics (implemented)
   rag/             RAG configuration/retrieval (Phase 5, not yet implemented)
   shared/          Types/utilities shared across packages (empty until needed)
 docker/            Compose-adjacent assets (Postgres init scripts)
@@ -69,7 +69,7 @@ apps/api/app/
   config.py        Settings (pydantic-settings, env-var driven)
   core/            Cross-cutting: structured logging, exception types/handlers, SSE formatting
   api/
-    routes/        One module per resource (health, projects, datasets, experiments, runs, models, generate)
+    routes/        One module per resource (health, projects, datasets, experiments, runs, models, generate, evaluations)
     router.py       Aggregates routes under /api/v1
     deps.py         Shared FastAPI dependencies (DbSession, ...)
   db/               Engine/session setup, declarative Base + mixins
@@ -78,7 +78,9 @@ apps/api/app/
   repositories/      Thin, rule-free data-access functions (one module per aggregate root)
   services/         Business logic, framework-agnostic (no FastAPI imports)
   experiments/      The experiment engine: prompt templates, the runner, concurrency, lifecycle, error classification, the SSE event bus — see docs/experiments.md
+  evaluation/       The evaluation engine: the runner, concurrency, lifecycle, SSE event bus — see docs/evaluation.md
   llm/              FastAPI-specific wiring for the LLM provider abstraction
+  embeddings/       FastAPI-specific wiring for the embedding provider abstraction
 ```
 
 **Layering:** routes translate HTTP ⟷ Pydantic schemas and delegate to
@@ -134,12 +136,13 @@ place — better to prove the extension works now than to migrate later.
   durably persisted once the request completes.
 
 Tables: `projects`, `datasets`, `dataset_items`, `experiments`,
-`experiment_runs`, `run_items` — see
-[`docs/experiments.md`](./experiments.md#data-model) for the full
-entity-relationship diagram and the reasoning behind each table's
-cascade/constraint choices. Future tables (evaluation results, traces)
-are added incrementally, each with its own migration, as the
-corresponding feature is built — not speculatively.
+`experiment_runs`, `run_items`, `evaluation_runs`, `evaluation_results` —
+see [`docs/experiments.md`](./experiments.md#data-model) and
+[`docs/evaluation.md`](./evaluation.md#data-model) for the full
+entity-relationship diagrams and the reasoning behind each table's
+cascade/constraint choices. Future tables (traces) are added
+incrementally, each with its own migration, as the corresponding
+feature is built — not speculatively.
 
 ## LLM provider abstraction
 
@@ -160,16 +163,18 @@ concrete provider, via a `get_llm_provider()` FastAPI dependency cached
 with `functools.lru_cache`. Adding `OpenAIProvider` or
 `AnthropicProvider` means implementing `LLMProvider` in
 `packages/llm` and changing that one factory function — no route,
-service, or future evaluation/RAG code should ever import
-`OllamaProvider` directly.
+service, or future RAG code should ever import `OllamaProvider`
+directly. The evaluation engine's `LLMJudgeEvaluator` is a concrete
+example of reuse: it depends on `LLMProvider`, not Ollama.
 
 `generate_structured()` accepts either a Pydantic model type (typed
 callers get a validated instance back) or a raw JSON Schema `dict`
 (callers building a schema at runtime — the Playground — get a
 validated plain `dict` back), using Ollama's structured-output support
-(`format: <json schema>`). This is what the future evaluation and
-experiment engines will use to get typed judgments and structured tool
-calls out of a model, rather than parsing free text. See
+(`format: <json schema>`). The experiment engine uses this for
+structured-output experiments; the evaluation engine's `LLMJudgeEvaluator`
+uses the exact same call to get a validated, schema-checked judgment out
+of a model rather than parsing free text. See
 [`docs/llm-execution.md`](./llm-execution.md) for the full request flow,
 including streaming.
 
@@ -189,16 +194,28 @@ cooperative cancellation. Progress streams over SSE from an in-process
 pub/sub bus. Full detail, diagrams, and the reasoning behind every
 cascade/constraint choice: [`docs/experiments.md`](./experiments.md).
 
-## Future: evaluation architecture (Phase 4)
+## Evaluation engine architecture (Phase 4)
 
-Not implemented yet (`packages/evaluation` is a scaffold). Expected
-shape: a `Scorer` interface (exact-match/regex, embedding similarity,
-LLM-as-judge via `LLMProvider.generate_structured()`) run against a
-`RunItem`'s response and its dataset item's expected answer, producing
-an `EvaluationResult` (metric, score, reason, evaluator) — a separate
-table referencing `run_item_id`, never a column on `RunItem` itself, so
-evaluation stays additive and re-runnable without re-executing the
-experiment. Regression detection compares metrics across runs over time.
+```
+ExperimentRun → EvaluationRun → EvaluationRunner → EvaluatorRegistry → Evaluator → EvaluationResult → Aggregate Metrics
+```
+
+An `EvaluationRun` evaluates one already-completed `ExperimentRun` under
+one evaluator configuration (`exact_match`, `contains`,
+`semantic_similarity`, or `llm_judge` — added via `EvaluatorRegistry`,
+never an `if/elif` chain); running it produces one `EvaluationResult`
+per `RunItem`. `packages/evaluation` (`reliability_lab_evaluation`) is
+framework-agnostic, mirroring `packages/llm`'s shape: evaluators depend
+on an `EmbeddingProvider`/`LLMProvider` abstraction, never on
+`sentence-transformers`/Ollama directly, and never touch a database —
+`app/evaluation/runner.py` builds their input and persists their output.
+The runner itself mirrors `ExperimentRunner`: independent of FastAPI,
+bounded concurrency, per-item failure isolation, cooperative
+cancellation, SSE progress. Aggregate metrics (pass rate, mean/median
+score, score distribution) and baseline-vs-candidate regression
+detection are pure functions over plain result records, reusable
+outside `apps/api`. Full detail, diagrams, and the reasoning behind
+every cascade/constraint choice: [`docs/evaluation.md`](./evaluation.md).
 
 ## Future: RAG architecture (Phase 5)
 

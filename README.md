@@ -13,12 +13,15 @@ single LLM API. It's meant to feel like a developer tool — Linear,
 Vercel, and modern observability platforms are the reference points, not
 "AI startup" gradients and glow.
 
-> **Status:** Phases 1–3 are complete — Foundation, LLM Execution
-> (Playground), and the Experiment Engine: datasets, reproducible
+> **Status:** Phases 1–4 are complete — Foundation, LLM Execution
+> (Playground), the Experiment Engine (datasets, reproducible
 > experiments, dataset-wide runs with bounded concurrency and live
-> progress, and run comparison. The evaluation/RAG engines described
-> below are not built yet. See [`docs/roadmap.md`](docs/roadmap.md) and
-> [`docs/experiments.md`](docs/experiments.md).
+> progress, run comparison), and the Evaluation Engine: exact-match,
+> contains, local-embedding semantic similarity, and LLM-as-judge
+> evaluators, aggregate metrics, and baseline-vs-candidate regression
+> detection. The RAG engine described below is not built yet. See
+> [`docs/roadmap.md`](docs/roadmap.md), [`docs/experiments.md`](docs/experiments.md),
+> and [`docs/evaluation.md`](docs/evaluation.md).
 
 ## Why
 
@@ -36,15 +39,17 @@ Dataset → Experiment → Prompt → Model → RAG / Tools → LLM → Trace �
 
 That's the pipeline the whole system is building toward. So far:
 the project foundation, the LLM abstraction, project management,
-single-prompt LLM execution (Playground), and the full
-`Dataset → Experiment → Run` slice are implemented — `Trace`/`Evaluation`
-don't exist yet. See [`docs/architecture.md`](docs/architecture.md) for
-the full breakdown of how the frontend, backend, database, and LLM
-abstraction are put together, [`docs/llm-execution.md`](docs/llm-execution.md)
-for how a Playground run flows end to end,
+single-prompt LLM execution (Playground), the full
+`Dataset → Experiment → Run` slice, and `Evaluation → Metrics →
+Comparison` are implemented — `RAG / Tools` and `Trace` don't exist yet.
+See [`docs/architecture.md`](docs/architecture.md) for the full
+breakdown of how the frontend, backend, database, and LLM abstraction
+are put together, [`docs/llm-execution.md`](docs/llm-execution.md) for
+how a Playground run flows end to end,
 [`docs/experiments.md`](docs/experiments.md) for the experiment
-engine's architecture, and [`docs/roadmap.md`](docs/roadmap.md) for
-what's next.
+engine's architecture, [`docs/evaluation.md`](docs/evaluation.md) for
+the evaluation engine's architecture, and
+[`docs/roadmap.md`](docs/roadmap.md) for what's next.
 
 ```
 apps/
@@ -52,7 +57,7 @@ apps/
   api/             FastAPI backend
 packages/
   llm/             Provider-agnostic LLM abstraction (implemented)
-  evaluation/      Evaluation engine — Phase 4, not yet implemented
+  evaluation/      Evaluation engine — evaluator registry, metrics, regression (implemented)
   rag/             RAG configuration/retrieval — Phase 5, not yet implemented
   shared/          Shared types/utilities — empty until something needs it
 docker/            Compose-adjacent assets (Postgres init scripts)
@@ -156,22 +161,35 @@ alembic -c apps/api/alembic.ini upgrade head
   per-item run inspector (prompt, response, tokens, latency, classified
   errors), cooperative cancellation, and run history
 - **Run comparison**: two runs' responses side by side per dataset item,
-  with a word-level diff — no quality scores yet, that's Phase 4
-- Every other section (Evaluations, Traces, Settings) renders a real
-  empty state explaining what's coming and when, rather than a stub
+  with a word-level diff — a raw text diff, deliberately without a
+  quality verdict; that's what Evaluations are for
+- **Evaluations**: score a completed run's outputs with exact-match,
+  contains (partial-credit keyword matching), local-embedding semantic
+  similarity, or LLM-as-judge (via `generate_structured()`, judge model
+  kept separate from the candidate model) — bounded concurrency, live
+  SSE progress, per-item failure isolation without losing the rest of
+  the run's results, cooperative cancellation, aggregate metrics (pass
+  rate, mean/median score, score distribution), and baseline-vs-
+  candidate regression detection with a per-dataset-item score delta view
+- Every other section (Traces, Settings) renders a real empty state
+  explaining what's coming and when, rather than a stub
 - `GET /api/v1/health` and `GET /api/v1/models/health` — service,
   database, and Ollama connectivity status
 - `LLMProvider` interface + a fully implemented, tested `OllamaProvider`
   (chat and completion prompts, structured output, streaming, model
-  discovery) — wired into the Playground, Models, and Experiment Runner
+  discovery) — wired into the Playground, Models, Experiment Runner, and
+  the LLM-as-judge evaluator
+- `EvaluatorRegistry` (pluggable evaluators, not an if/elif chain) +
+  `EmbeddingProvider` interface with a fully implemented, local
+  `SentenceTransformerEmbeddingProvider` — no paid embedding API
 
 ## Roadmap
 
-Phase 1 (Foundation) → Phase 2 (LLM Execution) → **Phase 3 (Experiment
-Engine, this repo)** → Phase 4 (Evaluation) → Phase 5 (RAG) → Phase 6
-(Observability) → Phase 7 (Model Routing) → Phase 8 (Agent Evaluation)
-→ Phase 9 (MCP) → Phase 10 (Automated Optimization). Full detail in
-[`docs/roadmap.md`](docs/roadmap.md).
+Phase 1 (Foundation) → Phase 2 (LLM Execution) → Phase 3 (Experiment
+Engine) → **Phase 4 (Evaluation Engine, this repo)** → Phase 5 (RAG) →
+Phase 6 (Observability) → Phase 7 (Model Routing) → Phase 8 (Agent
+Evaluation) → Phase 9 (MCP) → Phase 10 (Automated Optimization). Full
+detail in [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Contributing
 
@@ -181,7 +199,7 @@ Engine, this repo)** → Phase 4 (Evaluation) → Phase 5 (RAG) → Phase 6
    # backend
    source .venv/bin/activate
    ruff check apps/api packages --config apps/api/pyproject.toml
-   mypy apps/api/app packages/llm/src --config-file apps/api/pyproject.toml
+   mypy apps/api/app packages/llm/src packages/evaluation/src --config-file apps/api/pyproject.toml
    docker compose up -d db && pytest apps/api/tests
 
    # frontend

@@ -37,18 +37,21 @@ side-by-side run comparison view. See
 Evaluation (scoring outputs, quality verdicts) is deliberately not part
 of this phase — see Phase 4.
 
-## Phase 4 — Evaluation engine
+## Phase 4 — Evaluation engine ✅
 
 Scoring `RunItem` outputs against a dataset item's expected answer:
-exact-match/regex scorers, embedding-similarity scorers, LLM-as-judge
-(via `generate_structured()`), and regression detection comparing
-metrics across runs over time. Results land in a new `EvaluationResult`
-table (metric, score, reason, evaluator) referencing `run_item_id` —
-`RunItem` itself never grows a score column, so evaluation stays a
-separate, re-runnable concern on top of Phase 3's execution records.
-`packages/evaluation` gets implemented here. This is also where the
-Phase 3 run-comparison view gains actual quality verdicts, rather than
-just a text diff.
+exact-match, contains (partial-credit keyword matching), local-embedding
+semantic similarity, and LLM-as-judge (via `generate_structured()`) —
+run through a pluggable `EvaluatorRegistry`, not an `if/elif` chain.
+Results land in `EvaluationResult` (metric, score, reason, evaluator,
+details) referencing `run_item_id` — `RunItem` itself never grows a
+score column, so evaluation stays a separate, re-runnable concern on top
+of Phase 3's execution records. `packages/evaluation` is implemented.
+Aggregate metrics (pass rate, mean/median score, score distribution) and
+baseline-vs-candidate regression detection round out the loop from "I
+can run LLM experiments" to "I can systematically measure how LLM
+systems behave and detect regressions." See
+[`docs/evaluation.md`](./evaluation.md).
 
 ## Phase 5 — RAG evaluation
 
