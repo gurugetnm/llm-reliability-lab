@@ -116,12 +116,12 @@ class TestContainsEvaluator:
 
 class TestEvaluatorRegistry:
     def test_names_lists_all_built_ins(self) -> None:
-        assert set(EvaluatorRegistry.names()) == {
-            "exact_match",
-            "contains",
-            "semantic_similarity",
-            "llm_judge",
-        }
+        # A superset check, not equality: other test modules
+        # (test_evaluation_runner.py) register additional test-only
+        # evaluators against this same process-wide registry.
+        assert {"exact_match", "contains", "semantic_similarity", "llm_judge"} <= set(
+            EvaluatorRegistry.names()
+        )
 
     def test_unknown_evaluator_raises(self) -> None:
         with pytest.raises(EvaluationConfigError):
