@@ -2,7 +2,16 @@
 
 from fastapi import APIRouter
 
-from app.api.routes import datasets, experiments, generate, health, models, projects, runs
+from app.api.routes import (
+    datasets,
+    evaluations,
+    experiments,
+    generate,
+    health,
+    models,
+    projects,
+    runs,
+)
 
 api_v1_router = APIRouter(prefix="/api/v1")
 api_v1_router.include_router(health.router)
@@ -13,3 +22,4 @@ api_v1_router.include_router(runs.experiment_runs_router)
 api_v1_router.include_router(runs.runs_router)
 api_v1_router.include_router(models.router)
 api_v1_router.include_router(generate.router)
+api_v1_router.include_router(evaluations.router)
