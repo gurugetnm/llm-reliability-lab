@@ -221,6 +221,124 @@ export interface RunItem {
   completed_at: string | null;
 }
 
+// --- Evaluation engine (Phase 4) -------------------------------------------
+
+export interface EvaluatorInfo {
+  name: string;
+  version: string;
+  description: string;
+  score_range: [number, number] | null;
+  higher_is_better: boolean;
+  supports_pass_fail: boolean;
+  config_schema: Record<string, unknown>;
+  requires_embedding_provider: boolean;
+  requires_llm_provider: boolean;
+}
+
+export type EvaluationRunStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "completed_with_errors"
+  | "failed"
+  | "cancelled";
+
+export type EvaluationResultStatus = "succeeded" | "failed" | "cancelled";
+
+export interface EvaluationRunCreate {
+  run_id: string;
+  name: string;
+  evaluator_type: string;
+  configuration?: Record<string, unknown>;
+  concurrency?: number;
+}
+
+export interface EvaluationRun {
+  id: string;
+  run_id: string;
+  name: string;
+  status: EvaluationRunStatus;
+  evaluator_type: string;
+  evaluator_version: string;
+  configuration: Record<string, unknown>;
+  total_items: number;
+  completed_items: number;
+  successful_items: number;
+  failed_items: number;
+  cancel_requested: boolean;
+  concurrency: number;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
+
+export interface EvaluationResult {
+  id: string;
+  evaluation_run_id: string;
+  run_item_id: string;
+  status: EvaluationResultStatus;
+  metric_name: string;
+  score: number | null;
+  passed: boolean | null;
+  reason: string | null;
+  details: Record<string, unknown>;
+  evaluator: string;
+  error_message: string | null;
+  created_at: string;
+  input: unknown;
+  expected_output: unknown;
+  actual_output: string | null;
+  actual_structured_output: Record<string, unknown> | null;
+}
+
+export interface DistributionBucket {
+  range_start: number;
+  range_end: number;
+  item_count: number;
+}
+
+export interface EvaluationMetrics {
+  evaluation_run_id: string;
+  total: number;
+  evaluated: number;
+  failed: number;
+  passed: number | null;
+  pass_rate: number | null;
+  mean_score: number | null;
+  median_score: number | null;
+  min_score: number | null;
+  max_score: number | null;
+  distribution: DistributionBucket[] | null;
+}
+
+export interface Regression {
+  baseline_score: number;
+  candidate_score: number;
+  difference: number;
+  relative_difference: number | null;
+  threshold: number;
+  higher_is_better: boolean;
+  regression_detected: boolean;
+}
+
+export interface EvaluationItemComparison {
+  dataset_item_id: string | null;
+  baseline_result_id: string | null;
+  candidate_result_id: string | null;
+  baseline_score: number | null;
+  candidate_score: number | null;
+  difference: number | null;
+}
+
+export interface EvaluationComparison {
+  baseline: EvaluationRun;
+  candidate: EvaluationRun;
+  baseline_metrics: EvaluationMetrics;
+  candidate_metrics: EvaluationMetrics;
+  regression: Regression | null;
+  items: EvaluationItemComparison[];
+}
+
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
@@ -344,4 +462,30 @@ export const api = {
     request<Page<RunItem>>(`/api/v1/runs/${runId}/items?page=${page}&page_size=${pageSize}`),
   cancelRun: (runId: string) =>
     request<ExperimentRun>(`/api/v1/runs/${runId}/cancel`, { method: "POST" }),
+
+  listEvaluators: () => request<EvaluatorInfo[]>("/api/v1/evaluators"),
+  createEvaluation: (data: EvaluationRunCreate) =>
+    request<EvaluationRun>("/api/v1/evaluations", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  listEvaluations: (runId?: string, page = 1, pageSize = 20) =>
+    request<Page<EvaluationRun>>(
+      `/api/v1/evaluations?page=${page}&page_size=${pageSize}${runId ? `&run_id=${runId}` : ""}`,
+    ),
+  getEvaluation: (evaluationId: string) =>
+    request<EvaluationRun>(`/api/v1/evaluations/${evaluationId}`),
+  listEvaluationResults: (evaluationId: string, page = 1, pageSize = 20) =>
+    request<Page<EvaluationResult>>(
+      `/api/v1/evaluations/${evaluationId}/results?page=${page}&page_size=${pageSize}`,
+    ),
+  getEvaluationMetrics: (evaluationId: string) =>
+    request<EvaluationMetrics>(`/api/v1/evaluations/${evaluationId}/metrics`),
+  cancelEvaluation: (evaluationId: string) =>
+    request<EvaluationRun>(`/api/v1/evaluations/${evaluationId}/cancel`, { method: "POST" }),
+  compareEvaluations: (baselineId: string, candidateId: string, regressionThreshold?: number) =>
+    request<EvaluationComparison>(
+      `/api/v1/evaluations/compare?baseline_id=${baselineId}&candidate_id=${candidateId}` +
+        (regressionThreshold !== undefined ? `&regression_threshold=${regressionThreshold}` : ""),
+    ),
 };
