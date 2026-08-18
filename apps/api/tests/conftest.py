@@ -19,9 +19,11 @@ import pytest_asyncio
 from app.config import get_settings
 from app.db.base import Base
 from app.db.session import get_db
+from app.embeddings.dependencies import get_embedding_provider
 from app.llm.dependencies import get_llm_provider
 from app.main import app
 from httpx import ASGITransport, AsyncClient
+from reliability_lab_evaluation import EmbeddingProvider
 from reliability_lab_llm import LLMProvider
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -90,3 +92,17 @@ def set_provider() -> Iterator[Callable[[LLMProvider], None]]:
 
     yield _set
     app.dependency_overrides.pop(get_llm_provider, None)
+
+
+@pytest.fixture
+def set_embedding_provider() -> Iterator[Callable[[EmbeddingProvider], None]]:
+    """Overrides the EmbeddingProvider dependency for tests that don't
+    want to download a real sentence-transformers model — see
+    `tests/fakes.py`'s `FakeEmbeddingProvider`.
+    """
+
+    def _set(provider: EmbeddingProvider) -> None:
+        app.dependency_overrides[get_embedding_provider] = lambda: provider
+
+    yield _set
+    app.dependency_overrides.pop(get_embedding_provider, None)
