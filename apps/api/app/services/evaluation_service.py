@@ -31,6 +31,7 @@ from app.evaluation.runner import EvaluationRunner
 from app.experiments.lifecycle import is_terminal as is_experiment_run_terminal
 from app.models.enums import EvaluationRunStatus
 from app.models.evaluation import EvaluationResult, EvaluationRun
+from app.models.experiment import RunItem
 from app.repositories import evaluation_repository, run_repository
 from app.schemas.evaluation import EvaluationRunCreate
 
@@ -125,10 +126,10 @@ async def list_evaluations(
 
 async def list_evaluation_results(
     db: AsyncSession, evaluation_run_id: uuid.UUID, *, page: int, page_size: int
-) -> tuple[list[EvaluationResult], int]:
+) -> tuple[list[tuple[EvaluationResult, RunItem]], int]:
     await get_evaluation_or_404(db, evaluation_run_id)
     offset = (page - 1) * page_size
-    return await evaluation_repository.list_evaluation_results_page(
+    return await evaluation_repository.list_evaluation_results_page_with_context(
         db, evaluation_run_id, offset=offset, limit=page_size
     )
 

@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.models.evaluation import EvaluationResult, EvaluationRun
 from app.models.experiment import RunItem
@@ -60,6 +61,33 @@ async def list_evaluation_results_page(
         .limit(limit)
     )
     return list(result.scalars().all()), total
+
+
+async def list_evaluation_results_page_with_context(
+    db: AsyncSession, evaluation_run_id: uuid.UUID, *, offset: int, limit: int
+) -> tuple[list[tuple[EvaluationResult, RunItem]], int]:
+    """Same page of results as `list_evaluation_results_page`, but each
+    paired with its `RunItem` (and that item's `DatasetItem`, eagerly
+    joined) — one indexed query, not N+1 — so the API can show the
+    input/expected/actual output a score is actually about (Part 31)
+    without the evaluator itself ever touching the database."""
+    total = (
+        await db.execute(
+            select(func.count(EvaluationResult.id)).where(
+                EvaluationResult.evaluation_run_id == evaluation_run_id
+            )
+        )
+    ).scalar_one()
+    result = await db.execute(
+        select(EvaluationResult, RunItem)
+        .join(RunItem, RunItem.id == EvaluationResult.run_item_id)
+        .options(joinedload(RunItem.dataset_item))
+        .where(EvaluationResult.evaluation_run_id == evaluation_run_id)
+        .order_by(EvaluationResult.created_at)
+        .offset(offset)
+        .limit(limit)
+    )
+    return [(row.EvaluationResult, row.RunItem) for row in result.all()], total
 
 
 async def list_all_evaluation_results(

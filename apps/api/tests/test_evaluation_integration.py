@@ -174,6 +174,9 @@ async def test_full_pipeline_dataset_to_evaluation_metrics(
     assert results["total"] == 3
     assert all(r["score"] == 1.0 and r["passed"] is True for r in results["items"])
     assert {r["evaluator"] for r in results["items"]} == {"exact_match:v1"}
+    # Results are enriched with the RunItem/DatasetItem context they scored.
+    assert all(r["expected_output"] in answers for r in results["items"])
+    assert all(r["actual_output"] in answers for r in results["items"])
 
     metrics = (await committing_client.get(f"/api/v1/evaluations/{evaluation_id}/metrics")).json()
     assert metrics["total"] == 3

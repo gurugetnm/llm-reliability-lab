@@ -74,6 +74,13 @@ class EvaluationResultRead(BaseModel):
     evaluator: str
     error_message: str | None
     created_at: datetime
+    # Denormalized from the scored RunItem (and its DatasetItem, if it
+    # still exists) so the UI can show what a score is actually about
+    # (Part 31) without a second request per result.
+    input: Any = None
+    expected_output: Any = None
+    actual_output: str | None = None
+    actual_structured_output: dict[str, Any] | None = None
 
 
 class DistributionBucketRead(BaseModel):

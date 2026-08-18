@@ -24,7 +24,8 @@ from app.embeddings.dependencies import EmbeddingProviderDep
 from app.evaluation.events import evaluation_event_bus
 from app.evaluation.lifecycle import is_terminal
 from app.llm.dependencies import LLMProviderDep
-from app.models.evaluation import EvaluationRun
+from app.models.evaluation import EvaluationResult, EvaluationRun
+from app.models.experiment import RunItem
 from app.schemas.evaluation import (
     DistributionBucketRead,
     EvaluationComparisonRead,
@@ -137,7 +138,7 @@ async def list_evaluation_results(
         db, evaluation_id, page=page, page_size=page_size
     )
     return Page(
-        items=[EvaluationResultRead.model_validate(r) for r in results],
+        items=[_result_read(result, run_item) for result, run_item in results],
         page=page,
         page_size=page_size,
         total=total,
@@ -199,6 +200,28 @@ def _run_snapshot(evaluation_run: EvaluationRun) -> dict[str, object]:
         "successful_items": evaluation_run.successful_items,
         "failed_items": evaluation_run.failed_items,
     }
+
+
+def _result_read(result: EvaluationResult, run_item: RunItem) -> EvaluationResultRead:
+    dataset_item = run_item.dataset_item
+    return EvaluationResultRead(
+        id=result.id,
+        evaluation_run_id=result.evaluation_run_id,
+        run_item_id=result.run_item_id,
+        status=result.status,
+        metric_name=result.metric_name,
+        score=result.score,
+        passed=result.passed,
+        reason=result.reason,
+        details=result.details,
+        evaluator=result.evaluator,
+        error_message=result.error_message,
+        created_at=result.created_at,
+        input=dataset_item.input if dataset_item is not None else None,
+        expected_output=dataset_item.expected_output if dataset_item is not None else None,
+        actual_output=run_item.response,
+        actual_structured_output=run_item.structured_output,
+    )
 
 
 def _metrics_read(evaluation_run_id: uuid.UUID, m: AggregateMetrics) -> EvaluationMetricsRead:
