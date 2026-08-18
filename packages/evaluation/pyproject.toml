@@ -1,13 +1,23 @@
 [project]
 name = "llm-reliability-lab-evaluation"
 version = "0.1.0"
-description = "Evaluation engine for LLM Reliability Lab (Phase 4 — not yet implemented)."
+description = "Evaluation engine for LLM Reliability Lab: scoring RunItems (exact-match, contains, semantic similarity, LLM-as-judge) independently of generation."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+  "pydantic>=2.6",
+  "jsonschema>=4.21",
+  "llm-reliability-lab-llm",
+]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "mypy>=1.10", "ruff>=0.6"]
+# Only needed to actually run `SentenceTransformerEmbeddingProvider` against
+# a real model. Deliberately optional: unit tests use a fake
+# `EmbeddingProvider` and never import `sentence_transformers` (see
+# `docs/evaluation.md`), so CI and normal development don't need this
+# multi-hundred-MB dependency or a model download.
+embeddings = ["sentence-transformers>=3.0"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "mypy>=1.10", "ruff>=0.6"]
 
 [build-system]
 requires = ["hatchling"]
