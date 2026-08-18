@@ -35,6 +35,16 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     default_model: str = "llama3.1"
 
+    # --- Embeddings (evaluation engine) ---
+    # A small (~90MB), CPU-friendly sentence-transformers model — a
+    # reasonable default for a local lab where nobody has necessarily
+    # provisioned a GPU. Only loaded (and only requires the optional
+    # `sentence-transformers` dependency) the first time
+    # SemanticSimilarityEvaluator actually runs.
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_device: str = "cpu"
+    embedding_batch_size: int = 32
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
