@@ -23,6 +23,7 @@ import jsonschema
 from pydantic import BaseModel, Field, field_validator
 from reliability_lab_llm import GenerationOptions, LLMProvider
 from reliability_lab_llm.exceptions import ProviderError, StructuredOutputError
+from reliability_lab_llm.types import StructuredGenerationResult
 
 from reliability_lab_evaluation.base import Evaluator
 from reliability_lab_evaluation.evaluators.judge_prompt import (
@@ -109,7 +110,7 @@ class LLMJudgeEvaluator(Evaluator):
 
         started_at = time.perf_counter()
         try:
-            result = await self._llm_provider.generate_structured(
+            result: StructuredGenerationResult[Any] = await self._llm_provider.generate_structured(
                 messages,
                 model=config.judge_model,
                 schema=self._schema,

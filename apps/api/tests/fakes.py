@@ -1,16 +1,20 @@
-"""Test doubles for `LLMProvider`.
+"""Test doubles for `LLMProvider` and `EmbeddingProvider`.
 
 Route-level tests use `FakeLLMProvider` instead of exercising Ollama's
 actual wire format — that translation is already covered directly
 against `OllamaProvider` in `test_llm_provider.py`. Here we only care
 that routes call the provider correctly and translate its results/
-errors into the right HTTP responses.
+errors into the right HTTP responses. `FakeEmbeddingProvider` plays the
+same role for the evaluation engine's `SemanticSimilarityEvaluator` —
+deterministic vectors, no `sentence-transformers` model download.
 """
 
 import asyncio
+import hashlib
 from collections.abc import AsyncIterator
 from typing import Any
 
+from reliability_lab_evaluation import EmbeddingProvider
 from reliability_lab_llm import (
     GenerationOptions,
     GenerationResult,
@@ -189,3 +193,32 @@ class ScriptedLLMProvider(LLMProvider):
 
     async def get_models(self) -> list[ModelSummary]:
         return []
+
+
+class FakeEmbeddingProvider(EmbeddingProvider):
+    """Deterministic, dependency-free `EmbeddingProvider` for tests.
+
+    Vectors are derived from a text's SHA-256 digest, not a real
+    semantic model — two texts that share a prefix aren't more similar
+    than two that don't. Tests that need actual semantic behavior are
+    out of scope here; this fake only needs to be a *stable* function of
+    its input, so `SemanticSimilarityEvaluator`'s scoring/caching/
+    batching logic can be exercised without a model download.
+    """
+
+    name = "fake"
+    dimensions = 8
+
+    def __init__(self) -> None:
+        self.batch_calls: list[list[str]] = []
+
+    def _vector(self, text: str) -> list[float]:
+        digest = hashlib.sha256(text.encode()).digest()
+        return [digest[i] / 255.0 for i in range(self.dimensions)]
+
+    async def embed(self, text: str) -> list[float]:
+        return (await self.embed_batch([text]))[0]
+
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        self.batch_calls.append(list(texts))
+        return [self._vector(text) for text in texts]
