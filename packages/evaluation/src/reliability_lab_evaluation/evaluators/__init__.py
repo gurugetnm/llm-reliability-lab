@@ -7,10 +7,12 @@ hand elsewhere.
 
 from reliability_lab_evaluation.evaluators.contains import ContainsEvaluator
 from reliability_lab_evaluation.evaluators.exact_match import ExactMatchEvaluator
+from reliability_lab_evaluation.evaluators.llm_judge import LLMJudgeEvaluator
 from reliability_lab_evaluation.evaluators.semantic_similarity import SemanticSimilarityEvaluator
 
 __all__ = [
     "ContainsEvaluator",
     "ExactMatchEvaluator",
+    "LLMJudgeEvaluator",
     "SemanticSimilarityEvaluator",
 ]
